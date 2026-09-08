@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: platform-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "latest"
+spec:
+  # Initial replicas. The HPA will scale this between minReplicas and maxReplicas.
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api
+      app.kubernetes.io/component: api
+
+  # Rolling update: one pod at a time, always keep at least 1 available.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-api
+        app.kubernetes.io/component: api
+      annotations:
+        # Prometheus scrape annotations — Prometheus Operator users should use
+        # a ServiceMonitor instead; these annotations work with the default
+        # Prometheus k8s_sd_configs scrape config.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "3000"
+    spec:
+      # Non-root security context — mirrors the distroless :nonroot image UID.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Graceful termination: give in-flight requests 30s to drain before SIGKILL.
+      terminationGracePeriodSeconds: 30
+
+      # Spread pods across zones to avoid single-AZ outages.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-api
+              app.kubernetes.io/component: api
+
+      containers:
+        - name: api
+          # Replace with your registry path. COMMIT_SHA is injected by CI.
+          image: "ghcr.io/OWNER/super-admin-platform/platform-api:latest"
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          # ── Environment ────────────────────────────────────────────────────
+          envFrom:
+            - configMapRef:
+                name: platform-api-config
+            - secretRef:
+                name: platform-api-secrets
+
+          env:
+            # Expose pod metadata for tracing / log correlation.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+
+          # ── Probes ─────────────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            # Give the app 30s to start before the first liveness check.
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: http
+            # Check readiness every 5s — fail fast to stop sending traffic.
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+            successThreshold: 1
+
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            # Allow up to 60s for initial startup (cold DB connections, etc.)
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+            successThreshold: 1
+
+          # ── Resources ──────────────────────────────────────────────────────
+          # Tune these for your workload. The HPA uses CPU request as its
+          # 100% baseline, so requests must be set.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          # ── Security ───────────────────────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          # ── Writable tmp for Node.js (distroless has read-only root fs) ────
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # Prefer spreading across different nodes.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: platform-api
+                    app.kubernetes.io/component: api
+                topologyKey: kubernetes.io/hostname

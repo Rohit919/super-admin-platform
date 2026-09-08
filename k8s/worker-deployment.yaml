@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-worker
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: platform-worker
+    app.kubernetes.io/component: worker
+spec:
+  # Workers are stateless consumers — scale based on BullMQ queue depth
+  # (via KEDA or a custom HPA external metric) rather than CPU.
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-worker
+      app.kubernetes.io/component: worker
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-worker
+        app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9101"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Workers finish in-flight jobs before exiting.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: worker
+          image: "ghcr.io/OWNER/super-admin-platform/platform-api:latest"
+          imagePullPolicy: Always
+
+          # Override CMD to run the worker entrypoint instead of the API server.
+          command: ["/nodejs/bin/node"]
+          args: ["/app/apps/platform-api/dist/workers/index.js"]
+
+          ports:
+            - name: metrics
+              containerPort: 9101
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: platform-api-config
+            - secretRef:
+                name: platform-api-secrets
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_SERVICE_NAME
+              value: "platform-worker"
+
+          # Workers don't serve HTTP — liveness checks the metrics port.
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}

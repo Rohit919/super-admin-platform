@@ -1,0 +1,66 @@
+{
+  "name": "super-admin-platform",
+  "version": "1.0.0",
+  "description": "Super Admin Platform — platform control plane (platform-api + super-admin frontend) sharing TypeBox API contracts",
+  "author": "DriftOS",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace @app/api",
+    "dev:super-admin": "npm run dev --workspace @app/super-admin",
+    "build:contracts": "npm run build --workspace @app/api-contracts",
+    "build:api": "npm run build --workspace @app/api",
+    "build:super-admin": "npm run build --workspace @app/super-admin",
+    "build": "npm run build:contracts && npm run build:api && npm run build:super-admin",
+    "test": "npm run test --workspace @app/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check:api-drift": "node scripts/check-api-drift.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed": "prisma db seed",
+    "docker:up": "docker-compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker-compose -f docker/docker-compose.yml down",
+    "docker:logs": "docker-compose -f docker/docker-compose.yml logs -f",
+    "prepare": "husky install || true"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.12.0",
+    "eslint": "^9.12.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.12",
+    "globals": "^15.11.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
+    "prisma": "^5.22.0",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.8.1"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,mjs,cjs,jsx}": [
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

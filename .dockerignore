@@ -1,0 +1,58 @@
+# Secrets — must never enter an image layer
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+.github
+
+# Dependencies (installed fresh in the builder stage)
+node_modules
+apps/*/node_modules
+packages/*/node_modules
+
+# Build artifacts (built inside the image)
+dist
+build
+apps/*/dist
+packages/*/dist
+*.tsbuildinfo
+
+# Test / coverage
+coverage
+**/__tests__
+**/*.test.ts
+**/*.spec.ts
+.nyc_output
+vitest.config.ts
+
+# Tooling & docs not needed at build time
+.husky
+.kiro
+docs
+scripts
+plop-templates
+plopfile.js
+*.md
+!README.md
+.vscode
+.idea
+*.swp
+
+# The super-admin frontend is built/deployed separately from the API image
+apps/super-admin
+
+# Docker / k8s config (not needed inside image)
+docker
+k8s
+fly.toml
+railway.json
+render.yaml
+
+# Misc
+*.log
+.DS_Store
+Makefile
+setup.sh

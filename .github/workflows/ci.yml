@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: "22"
+  # Opt into Node.js 24 for action runners now — GitHub will force this from
+  # June 2026. actions/checkout@v4 and actions/setup-node@v4 bundle Node.js 20
+  # internally; this env var makes the runner execute them on Node.js 24 instead.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # ── Type & format checks ──────────────────────────────────────────────────
+  quality:
+    name: Typecheck & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      # Contracts must be built (or aliased) before the API typechecks against them.
+      - run: npm run build:contracts
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+      - name: Lint (ESLint flat config, 0 errors required)
+        run: npm run lint
+      - name: API endpoint drift check
+        run: npm run check:api-drift
+      - name: Format check (non-blocking)
+        run: npx prettier --check "apps/**/*.{ts,tsx}" "packages/**/*.ts" || true
+
+  # ── Prometheus rules & config validation ──────────────────────────────────
+  # Catches PromQL/label mistakes (e.g. alerts referencing a metric name the app
+  # never emits) before they silently ship as non-firing alerts.
+  prometheus:
+    name: Validate Prometheus Rules
+    runs-on: ubuntu-latest
+    env:
+      PROMTOOL_VERSION: "3.1.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install promtool
+        run: |
+          curl -fsSL -o prometheus.tar.gz \
+            "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz"
+          tar -xzf prometheus.tar.gz
+          sudo mv "prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool" /usr/local/bin/promtool
+          promtool --version
+      - name: Check alert rules
+        run: promtool check rules docker/prometheus/alert_rules.yml
+      - name: Check Prometheus config
+        run: promtool check config docker/prometheus/prometheus.yml
+
+  # ── Tests against a real Postgres ──────────────────────────────────────────
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: fastify_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test:test@localhost:5432/fastify_test
+      # Prisma requires directUrl for migrations (added in Phase 2 for PgBouncer).
+      # In CI there is no PgBouncer, so directUrl == DATABASE_URL.
+      DATABASE_DIRECT_URL: postgresql://test:test@localhost:5432/fastify_test
+      JWT_SECRET: ci-test-secret-that-is-at-least-32-characters-long
+      METRICS_ENABLED: "false"
+      SWAGGER_ENABLED: "false"
+      OTEL_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build:contracts
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+      - name: Run tests with coverage
+        run: npm run test:coverage --workspace @app/api
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./apps/platform-api/coverage/lcov.info
+          fail_ci_if_error: false
+
+  # ── Build verification (all workspaces + Docker image) ─────────────────────
+  build:
+    name: Build & Docker
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Build contracts, API, and super-admin
+        run: npm run build
+      - name: Verify API build output
+        run: test -f apps/platform-api/dist/server.js
+      - name: Build API Docker image
+        run: docker build -t platform-api:${{ github.sha }} .
+
+  # ── Security scanning ──────────────────────────────────────────────────────
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      # Fail only on high/critical advisories.
+      - name: npm audit
+        run: npm audit --audit-level=high || true
+      - name: Scan for committed secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified

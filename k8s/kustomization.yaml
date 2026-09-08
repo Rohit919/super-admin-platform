@@ -1,0 +1,34 @@
+################################################################################
+# Kustomize root — apply everything with:
+#   kubectl apply -k k8s/
+# Or for a dry-run:
+#   kubectl apply -k k8s/ --dry-run=client
+################################################################################
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: platform
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml # Replace with ExternalSecret / SealedSecret in production
+  - deployment.yaml
+  - worker-deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - poddisruptionbudget.yaml
+
+# Common labels applied to all resources.
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: super-admin-platform
+
+# Override the image tag at deploy time without editing YAML:
+#   kubectl apply -k k8s/ --field-manager=flux --force-conflicts
+# Or with kustomize edit:
+#   kustomize edit set image ghcr.io/OWNER/super-admin-platform/platform-api=:<COMMIT_SHA>
+images:
+  - name: ghcr.io/OWNER/super-admin-platform/platform-api
+    newTag: latest

@@ -1,0 +1,81 @@
+################################################################################
+# HorizontalPodAutoscaler — API pods
+#
+# Scales on two signals:
+#   1. CPU utilisation (standard k8s metric) — handles compute-bound load
+#   2. HTTP requests/s (custom metric via Prometheus Adapter) — handles I/O-
+#      bound load where CPU stays low but RPS is high
+#
+# Prerequisite: install the Prometheus Adapter and configure it to expose
+# `http_requests_per_second` from the `http_requests_total` counter.
+# See: https://github.com/kubernetes-sigs/prometheus-adapter
+################################################################################
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: platform-api
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: platform-api
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: platform-api
+
+  minReplicas: 2
+  maxReplicas: 10
+
+  metrics:
+    # ── CPU utilisation ───────────────────────────────────────────────────────
+    # Scale out when average CPU across all pods exceeds 70% of the requested
+    # CPU (250m). Scale in when it drops back below.
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # ── HTTP requests/s (custom metric via Prometheus Adapter) ────────────────
+    # Scale out when average RPS per pod exceeds 50 req/s. Requires the
+    # Prometheus Adapter to be configured with a rule like:
+    #
+    #   - seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+    #     resources:
+    #       overrides:
+    #         namespace: {resource: "namespace"}
+    #         pod: {resource: "pod"}
+    #     name:
+    #       matches: "^(.*)_total$"
+    #       as: "${1}_per_second"
+    #     metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "50"
+
+  behavior:
+    # ── Scale-up behaviour ────────────────────────────────────────────────────
+    scaleUp:
+      stabilizationWindowSeconds: 60 # Wait 60s before scaling up again
+      policies:
+        - type: Pods
+          value: 2 # Add at most 2 pods per scale-up event
+          periodSeconds: 60
+        - type: Percent
+          value: 100 # Or double the replica count
+          periodSeconds: 60
+      selectPolicy: Max # Use whichever policy adds more pods
+
+    # ── Scale-down behaviour ──────────────────────────────────────────────────
+    scaleDown:
+      stabilizationWindowSeconds: 300 # Wait 5m before scaling down (avoids flapping)
+      policies:
+        - type: Pods
+          value: 1 # Remove at most 1 pod per 2-minute window
+          periodSeconds: 120

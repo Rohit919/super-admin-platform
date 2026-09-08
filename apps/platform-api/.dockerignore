@@ -1,0 +1,16 @@
+# Used when the Docker build context is apps/platform-api.
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies (installed fresh in the builder stage)
+node_modules
+
+# Build artifacts
+dist
+*.tsbuildinfo
+
+# Tests
+coverage
+**/__tests__

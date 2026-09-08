@@ -1,0 +1,55 @@
+global:
+  # How long to wait before sending a notification again if it has already been sent.
+  resolve_timeout: 5m
+
+# Group alerts and route them to receivers.
+route:
+  # Default receiver for all alerts that don't match a more specific route.
+  receiver: default-webhook
+
+  # Group alerts by alert name + severity within a 30-second window before
+  # sending, then re-notify every 4 hours while the alert is still firing.
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # Critical alerts get a separate receiver so they can be wired to a
+    # high-priority channel (PagerDuty, Slack #incidents, etc.).
+    - matchers:
+        - severity = critical
+      receiver: critical-webhook
+      continue: true # also send to default-webhook for auditing
+
+receivers:
+  # Generic webhook for all alerts.
+  # In dev this points to a local sink (nothing listens there — alerts just
+  # silently fail, which is acceptable for local development).
+  # Override ALERTMANAGER_WEBHOOK_URL in your environment and re-mount this
+  # file (or template it with envsubst) to wire a real endpoint in production.
+  - name: default-webhook
+    webhook_configs:
+      - url: "http://host.docker.internal:9999/alerts"
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+
+  # Critical-severity webhook.
+  # Replace with your PagerDuty / Slack / OpsGenie endpoint in production.
+  - name: critical-webhook
+    webhook_configs:
+      - url: "http://host.docker.internal:9999/alerts/critical"
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+
+# Inhibit rules silence lower-severity alerts when a higher-severity alert for
+# the same target is already firing (avoids noise during outages).
+inhibit_rules:
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    # Inhibit warning if the same alertname + instance is already critical.
+    equal: ["alertname", "instance"]

@@ -1,0 +1,364 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+  previewFeatures = ["tracing", "metrics"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  // App traffic — through PgBouncer (transaction pooling) in production.
+  url       = env("DATABASE_URL")
+  // Migrations & introspection need a direct (non-pooled) session.
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// Add models below
+
+// ─── Multi-tenancy: Tenant + Membership ──────────────────────────────────────
+// A Tenant is an independent customer organization. A single User identity may
+// belong to many Tenants via TenantMembership. Tenant isolation is a security
+// boundary enforced server-side — see docs/super-admin/MULTI-TENANT-ARCHITECTURE.md.
+//
+// Ownership classification:
+//   PLATFORM (no tenantId):  User, RefreshToken, OtpChallenge, PasswordResetToken,
+//                            Permission, and platform/system Roles (tenantId null).
+//   TENANT   (tenantId set): TenantMembership, tenant Roles, UserRole, AuditLog, Todo.
+model Tenant {
+  id        String       @id @default(cuid())
+  // Human-facing organization name.
+  name      String
+  // Stable, unique, URL-safe identifier (e.g. "acme-logistics"). Distinct from
+  // any future custom domain (see MULTI-TENANT-ARCHITECTURE §133).
+  slug      String       @unique
+  status    TenantStatus @default(TRIAL)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  memberships TenantMembership[]
+  roles       Role[]
+  userRoles   UserRole[]
+  apiCredentials TenantApiCredential[]
+
+  @@index([status])
+  @@map("tenants")
+}
+// NOTE: the Todo model (previously referenced here) was removed with the demo
+// modules in Phase 14; the Tenant no longer has a todo relation.
+
+// A User's relationship to a Tenant. A user has ONE identity and MANY memberships.
+// Do not duplicate user accounts per tenant — attach a membership instead.
+model TenantMembership {
+  tenantId  String
+  userId    String
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, userId])
+  @@index([userId])
+  @@index([tenantId, status])
+  @@map("tenant_memberships")
+}
+
+// ─── Platform layer: PlatformMembership ──────────────────────────────────────
+// A user's membership in the PLATFORM itself (the SaaS operator), independent of
+// any tenant. This is the gate for the Super Admin app and /api/v1/platform/*:
+// a user must have an ACTIVE PlatformMembership to perform platform operations.
+//
+// Platform PERMISSIONS still flow through the existing RBAC engine: a platform
+// user is assigned a platform Role (UserRole with tenantId = null) whose
+// permissions are the platform.* keys. So authorization is:
+//   PlatformMembership (gate) + platform Role (via UserRole tenantId=null) +
+//   platform.* permission.
+// We never hardcode a role NAME for authorization — SUPER_ADMIN is just the
+// initial seeded platform role (see docs/super-admin/MULTI-TENANT-ARCHITECTURE §57).
+//
+// A single identity can therefore hold BOTH platform access and tenant
+// memberships (e.g. a platform employee who also supports a tenant) without
+// becoming an ordinary tenant user.
+model PlatformMembership {
+  userId    String           @id
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("platform_memberships")
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+
+  @@map("tenant_status")
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+
+  @@map("membership_status")
+}
+
+// User model
+model User {
+  id                  String         @id @default(cuid())
+  email               String         @unique
+  password            String
+  name                String
+  role                String         @default("user")
+  // Email verification — null until the user verifies their address via OTP.
+  emailVerifiedAt     DateTime?
+  // Account lockout (brute-force protection)
+  failedLoginAttempts Int            @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  passwordChangedAt   DateTime?
+  // Authorization cache/stale-token control. Bumped whenever this user's
+  // effective permissions change (role assigned/removed, role perms changed).
+  // A cached permission set carrying an older version must be re-resolved.
+  permissionVersion   Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+  roles                UserRole[]
+  memberships          TenantMembership[]
+  platformMembership   PlatformMembership?
+
+  @@index([email])
+  @@map("users")
+}
+
+// Refresh token model - supports rotation, revocation, and family reuse detection
+model RefreshToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  family    String    // groups all rotations from one login session
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([family])
+  @@map("refresh_tokens")
+}
+
+// OTP challenge — covers email_verification, password_reset, login_verification.
+// Stores a HMAC-SHA256 hash of the 6-digit code, never the code itself.
+model OtpChallenge {
+  id          String    @id @default(cuid())
+  // userId is nullable: at forgot-password time we don't yet know if the email
+  // belongs to an account (we respond generically), so we store the destination
+  // email instead, then resolve the user when the OTP is verified.
+  userId      String?
+  destination String    // normalised email address
+  purpose     OtpPurpose
+  codeHash    String    // HMAC-SHA256(code) — never plain text
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, purpose])
+  @@index([destination, purpose])
+  @@index([expiresAt])
+  @@map("otp_challenges")
+}
+
+enum OtpPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  LOGIN_VERIFICATION
+
+  @@map("otp_purpose")
+}
+
+// Short-lived token exchanged after OTP verification to authorise a single
+// password-reset submission (separate from the OTP itself so the reset form
+// can be submitted without re-sending the code).
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique // SHA-256 of the opaque token
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─── RBAC: Roles, Permissions, and their join tables ─────────────────────────
+// Authorization model: User → UserRole → Role → RolePermission → Permission.
+// A user's effective permissions = the union of permissions across all roles.
+// Permission keys are an application-defined registry (see api-contracts);
+// the database stores assignments, not arbitrary client-injected permissions.
+
+// A named collection of permissions. System roles (isSystem=true) are seeded
+// and protected from destructive admin operations.
+model Role {
+  id          String           @id @default(cuid())
+  // Stable identifier used in seeds and privilege checks (e.g. "SUPER_ADMIN").
+  // Display-facing but treated as an internal key. Uniqueness is scoped to the
+  // tenant: role names may repeat across tenants (MULTI-TENANT-ARCHITECTURE §54).
+  name        String
+  // Tenant owner. NULL = platform/system role (e.g. SUPER_ADMIN) shared across
+  // the platform. Non-null = a role that belongs to one tenant.
+  tenantId    String?
+  description String?
+  // System roles are created by the seed and cannot be deleted/renamed by admins.
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  tenant      Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+  permissions RolePermission[]
+
+  // Scoped uniqueness: one role name per tenant. Platform roles (tenantId NULL)
+  // are deduplicated by the partial unique index added in the migration, since
+  // Postgres treats NULLs as distinct in a composite unique.
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+// One specific capability, keyed by the application registry (e.g. "users.read").
+// Permissions are effectively immutable after deployment; the key is the contract.
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+// User ↔ Role assignment. assignedBy records the actor for auditability.
+model UserRole {
+  userId     String
+  roleId     String
+  // Tenant in which this assignment applies. Nullable during staged migration;
+  // NULL = a platform-level assignment (e.g. platform SUPER_ADMIN). Non-null =
+  // the assignment only grants the role's permissions within that tenant.
+  // This column is what makes RBAC tenant-aware: the AuthorizationService
+  // resolves a user's effective permissions within the ACTIVE tenant only.
+  tenantId   String?
+  assignedAt DateTime @default(now())
+  assignedBy String?
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@index([tenantId])
+  @@index([userId, tenantId])
+  @@map("user_roles")
+}
+
+// Role ↔ Permission assignment.
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+// Immutable record of high-value authorization changes (role CRUD, role
+// assignment/removal, permission changes). Never store secrets in metadata.
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  // Tenant the event belongs to. NULL for platform-level events (e.g. tenant
+  // provisioning by a platform admin) — MULTI-TENANT-ARCHITECTURE §41.
+  tenantId   String?
+  actorId    String?
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  requestId  String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Tenant API credentials ───────────────────────────────────────────────────
+// Platform-managed API credentials issued to a Tenant so it (or its integrations)
+// can authenticate to the platform's tenant-facing API surface. Owned by the
+// PLATFORM control plane (see docs/TENANT-API-CREDENTIALS.md).
+//
+// SECURITY (plan §9/§14):
+//   - publicKey is NOT secret and may be listed/shown.
+//   - The plaintext secret is shown EXACTLY ONCE, at creation/rotation. Only a
+//     one-way SHA-256 hash (secretKeyHash) is ever stored — never the secret,
+//     never in logs or audit metadata, never returned by GET/list.
+//   - Rotation issues a new secret and revokes the previous credential.
+//   - Revocation is auditable (revokedAt + status).
+model TenantApiCredential {
+  id            String           @id @default(cuid())
+  tenantId      String
+  // Optional human label (e.g. "CI integration"). Not a secret.
+  name          String?
+  // Public identifier for the credential pair. Safe to display.
+  publicKey     String           @unique
+  // SHA-256 hash of the secret. The secret itself is never stored.
+  secretKeyHash String
+  status        CredentialStatus @default(ACTIVE)
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime         @default(now())
+  revokedAt     DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([publicKey])
+  @@map("tenant_api_credentials")
+}
+
+enum CredentialStatus {
+  ACTIVE
+  REVOKED
+
+  @@map("credential_status")
+}

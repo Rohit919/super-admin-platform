@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+. "$(dirname -- "$0")/ensure-node-path.sh"
+
+# Lint + format only the staged files (fast). ESLint uses the root flat config;
+# Prettier applies the repo formatting. See package.json "lint-staged".
+npx lint-staged
