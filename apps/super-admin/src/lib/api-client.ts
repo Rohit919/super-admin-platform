@@ -80,7 +80,7 @@ async function parseError(res: Response, json: unknown): Promise<ApiError> {
 // Single-flight refresh shared across concurrent 401s.
 let refreshPromise: Promise<boolean> | null = null;
 
-async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     try {

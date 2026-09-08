@@ -83,15 +83,37 @@ export class PlatformService {
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
   async dashboardStats(): Promise<PlatformDashboardStats> {
-    const [totalTenants, active, trial, suspended, archived, totalUsers] =
-      await Promise.all([
-        this.prisma.tenant.count(),
-        this.prisma.tenant.count({ where: { status: "ACTIVE" } }),
-        this.prisma.tenant.count({ where: { status: "TRIAL" } }),
-        this.prisma.tenant.count({ where: { status: "SUSPENDED" } }),
-        this.prisma.tenant.count({ where: { status: "ARCHIVED" } }),
-        this.prisma.user.count(),
-      ]);
+    const [
+      totalTenants,
+      active,
+      trial,
+      suspended,
+      archived,
+      totalUsers,
+      platformUsers,
+      activeApiCredentials,
+      recent,
+    ] = await Promise.all([
+      this.prisma.tenant.count(),
+      this.prisma.tenant.count({ where: { status: "ACTIVE" } }),
+      this.prisma.tenant.count({ where: { status: "TRIAL" } }),
+      this.prisma.tenant.count({ where: { status: "SUSPENDED" } }),
+      this.prisma.tenant.count({ where: { status: "ARCHIVED" } }),
+      this.prisma.user.count(),
+      this.prisma.platformMembership.count(),
+      this.prisma.tenantApiCredential.count({ where: { status: "ACTIVE" } }),
+      this.prisma.tenant.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    ]);
 
     return {
       totalTenants,
@@ -100,6 +122,15 @@ export class PlatformService {
       suspendedTenants: suspended,
       archivedTenants: archived,
       totalUsers,
+      platformUsers,
+      activeApiCredentials,
+      recentTenants: recent.map((t) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        status: t.status,
+        createdAt: t.createdAt.toISOString(),
+      })),
     };
   }
 

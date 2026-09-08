@@ -71,6 +71,11 @@ const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   "platform.role.create": "Create platform roles",
   "platform.role.update": "Update platform roles",
   "platform.permission.view": "View the platform permission registry",
+  "platform.plan.view": "View plans and their entitlements",
+  "platform.plan.manage": "Create/update plans and assign them to tenants",
+  "platform.entitlement.view":
+    "View entitlements and tenant entitlement values",
+  "platform.entitlement.manage": "Manage entitlements and tenant overrides",
   "platform.audit.view": "View platform audit logs",
   "platform.settings.view": "View platform settings",
   "platform.settings.update": "Update platform settings",
@@ -254,9 +259,136 @@ async function seedAdmin(): Promise<void> {
   console.log(`✓ Ensured ${email} has an ACTIVE platform membership`);
 }
 
+// ── Plans & entitlements (Phase 19.6) ────────────────────────────────────────
+// NON-COMMERCIAL baseline: capability entitlements + example plans. No pricing.
+// Values are stringified and interpreted per the entitlement's valueType.
+const ENTITLEMENT_DEFINITIONS: Array<{
+  key: string;
+  name: string;
+  description: string;
+  valueType: "BOOLEAN" | "NUMERIC" | "STRING";
+}> = [
+  {
+    key: "max_users",
+    name: "Maximum users",
+    description: "Upper bound on tenant user accounts.",
+    valueType: "NUMERIC",
+  },
+  {
+    key: "audit_retention_days",
+    name: "Audit retention (days)",
+    description: "How long tenant audit events are retained.",
+    valueType: "NUMERIC",
+  },
+  {
+    key: "feature.custom_branding",
+    name: "Custom branding",
+    description: "Tenant may customize branding.",
+    valueType: "BOOLEAN",
+  },
+  {
+    key: "feature.api_access",
+    name: "API access",
+    description: "Tenant may issue and use API credentials.",
+    valueType: "BOOLEAN",
+  },
+];
+
+// Each plan lists entitlement values by key. Keys must exist above.
+const PLAN_DEFINITIONS: Array<{
+  key: string;
+  name: string;
+  description: string;
+  entitlements: Record<string, string>;
+}> = [
+  {
+    key: "starter",
+    name: "Starter",
+    description: "Baseline capabilities for evaluation and small teams.",
+    entitlements: {
+      max_users: "5",
+      audit_retention_days: "30",
+      "feature.custom_branding": "false",
+      "feature.api_access": "false",
+    },
+  },
+  {
+    key: "growth",
+    name: "Growth",
+    description: "Expanded limits and API access for growing tenants.",
+    entitlements: {
+      max_users: "50",
+      audit_retention_days: "90",
+      "feature.custom_branding": "true",
+      "feature.api_access": "true",
+    },
+  },
+  {
+    key: "enterprise",
+    name: "Enterprise",
+    description: "High limits and full capabilities.",
+    entitlements: {
+      max_users: "1000",
+      audit_retention_days: "365",
+      "feature.custom_branding": "true",
+      "feature.api_access": "true",
+    },
+  },
+];
+
+async function seedPlansAndEntitlements(): Promise<void> {
+  // Entitlements (upsert by key).
+  const entIdByKey = new Map<string, string>();
+  for (const def of ENTITLEMENT_DEFINITIONS) {
+    const ent = await prisma.entitlement.upsert({
+      where: { key: def.key },
+      update: {
+        name: def.name,
+        description: def.description,
+        valueType: def.valueType,
+      },
+      create: {
+        key: def.key,
+        name: def.name,
+        description: def.description,
+        valueType: def.valueType,
+      },
+    });
+    entIdByKey.set(def.key, ent.id);
+  }
+  console.log(`✓ Entitlements synced: ${entIdByKey.size}`);
+
+  // Plans (upsert by key) + their entitlement values.
+  for (const def of PLAN_DEFINITIONS) {
+    const plan = await prisma.plan.upsert({
+      where: { key: def.key },
+      update: { name: def.name, description: def.description, isSystem: true },
+      create: {
+        key: def.key,
+        name: def.name,
+        description: def.description,
+        isSystem: true,
+      },
+      select: { id: true },
+    });
+
+    for (const [entKey, value] of Object.entries(def.entitlements)) {
+      const entitlementId = entIdByKey.get(entKey);
+      if (!entitlementId) continue;
+      await prisma.planEntitlement.upsert({
+        where: { planId_entitlementId: { planId: plan.id, entitlementId } },
+        update: { value },
+        create: { planId: plan.id, entitlementId, value },
+      });
+    }
+  }
+  console.log(`✓ Plans synced: ${PLAN_DEFINITIONS.length}`);
+}
+
 async function main(): Promise<void> {
   const permIdByKey = await seedPermissions();
   await seedRoles(permIdByKey);
+  await seedPlansAndEntitlements();
   await seedAdmin();
   console.log("✓ Seed complete");
 }

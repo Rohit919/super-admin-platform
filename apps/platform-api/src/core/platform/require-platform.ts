@@ -4,6 +4,7 @@ import {
   UnauthorizedError,
   PlatformAccessDeniedError,
 } from "@core/errors/index.js";
+import { recordSecurityFailure } from "@core/observability/security-metrics.js";
 
 /**
  * Platform (Super Admin) route guards.
@@ -47,6 +48,7 @@ export async function requirePlatform(
 
   if (!(await request.server.platform.isActivePlatformMember(userId))) {
     logPlatformDenial(request, userId);
+    recordSecurityFailure("platform", "not_platform_member");
     throw new PlatformAccessDeniedError();
   }
 }
@@ -63,6 +65,7 @@ export function requirePlatformPermission(permission: PermissionKey) {
     // 1) Platform membership gate.
     if (!(await request.server.platform.isActivePlatformMember(userId))) {
       logPlatformDenial(request, userId, permission);
+      recordSecurityFailure("platform", "not_platform_member");
       throw new PlatformAccessDeniedError();
     }
 
@@ -75,6 +78,7 @@ export function requirePlatformPermission(permission: PermissionKey) {
     );
     if (!hasPerm) {
       logPlatformDenial(request, userId, permission);
+      recordSecurityFailure("platform", "missing_permission");
       // Same error as the gate so callers can't distinguish "no membership"
       // from "missing permission" — no platform structure leakage.
       throw new PlatformAccessDeniedError();

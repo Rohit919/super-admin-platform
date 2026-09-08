@@ -41,6 +41,8 @@ model Tenant {
   roles       Role[]
   userRoles   UserRole[]
   apiCredentials TenantApiCredential[]
+  tenantPlan          TenantPlan?
+  entitlementOverrides TenantEntitlementOverride[]
 
   @@index([status])
   @@map("tenants")
@@ -361,4 +363,110 @@ enum CredentialStatus {
   REVOKED
 
   @@map("credential_status")
+}
+
+// ─── Plans & Entitlements (Phase 19.6) ───────────────────────────────────────
+// A capability-based plan model owned by the PLATFORM control plane. Deliberately
+// NON-COMMERCIAL: there is no price, billing, currency, or invoicing here. A Plan
+// is a named bundle of Entitlements; a Tenant is assigned at most one active Plan;
+// per-tenant overrides allow controlled deviation without inventing a new plan.
+//
+//   Plan → PlanEntitlement → Entitlement          (the plan's capability bundle)
+//   Tenant → TenantPlan → Plan                     (the tenant's active plan)
+//   Tenant → TenantEntitlementOverride → Entitlement (controlled per-tenant override)
+//
+// Entitlement values are stored as strings and interpreted per `valueType`
+// (BOOLEAN: "true"/"false"; NUMERIC: a number; STRING: opaque). Commercial
+// pricing/packaging decisions are intentionally out of scope (plan §11/§20).
+
+enum EntitlementValueType {
+  BOOLEAN
+  NUMERIC
+  STRING
+
+  @@map("entitlement_value_type")
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  // Stable identifier used in code/seeds (e.g. "starter"). Distinct from the
+  // human-facing name. Unique across the platform.
+  key         String   @unique
+  name        String
+  description String?
+  // System plans are seeded and protected from destructive admin operations.
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entitlements PlanEntitlement[]
+  tenantPlans  TenantPlan[]
+
+  @@map("plans")
+}
+
+model Entitlement {
+  id          String               @id @default(cuid())
+  // Stable capability key (e.g. "max_users", "audit_retention_days",
+  // "feature.custom_branding"). Unique across the platform.
+  key         String               @unique
+  name        String
+  description String?
+  valueType   EntitlementValueType @default(BOOLEAN)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  plans     PlanEntitlement[]
+  overrides TenantEntitlementOverride[]
+
+  @@map("entitlements")
+}
+
+// A plan's value for one entitlement. The (plan, entitlement) pair is unique.
+model PlanEntitlement {
+  planId        String
+  entitlementId String
+  // Stringified value interpreted per Entitlement.valueType.
+  value         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  plan        Plan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  entitlement Entitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@id([planId, entitlementId])
+  @@index([entitlementId])
+  @@map("plan_entitlements")
+}
+
+// The tenant's active plan. One plan per tenant (tenantId is the PK), so
+// assigning a new plan replaces the previous assignment.
+model TenantPlan {
+  tenantId   String   @id
+  planId     String
+  assignedAt DateTime @default(now())
+  assignedBy String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@map("tenant_plans")
+}
+
+// A controlled per-tenant override of a single entitlement's value. Takes
+// precedence over the plan's value when resolving effective entitlements.
+model TenantEntitlementOverride {
+  tenantId      String
+  entitlementId String
+  value         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entitlement Entitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, entitlementId])
+  @@index([entitlementId])
+  @@map("tenant_entitlement_overrides")
 }

@@ -18,10 +18,16 @@ import {
   type PlatformAuditLogListResponse,
   type PlatformAuditLogDto,
   type PlatformAuditLogQuery,
+  type PlanDto,
+  type PlanListResponse,
+  type TenantEntitlementsResponse,
 } from "@app/api-contracts";
 
 /** Credential DTO plus the one-time plaintext secret (create/rotate only). */
 export type CreatedCredential = CreatedTenantApiCredentialResponse["data"];
+
+/** A tenant's resolved plan + effective entitlements. */
+export type TenantEntitlements = TenantEntitlementsResponse["data"];
 
 /**
  * Platform (Super Admin) API service — contract-driven calls to /platform/*.
@@ -140,6 +146,33 @@ export const platformApi = {
     const res = await apiClient.request<PlatformAuditLogListResponse>(
       API_CONTRACTS.PLATFORM.AUDIT_LIST,
       { query: query as Record<string, string | number | undefined> },
+    );
+    return res.data;
+  },
+
+  // ── Plans & entitlements ───────────────────────────────────────────────────
+  plans: async (): Promise<PlanDto[]> => {
+    const res = await apiClient.request<PlanListResponse>(
+      API_CONTRACTS.PLANS.PLANS_LIST,
+    );
+    return res.data;
+  },
+
+  tenantEntitlements: async (tenantId: string): Promise<TenantEntitlements> => {
+    const res = await apiClient.request<TenantEntitlementsResponse>(
+      API_CONTRACTS.PLANS.TENANT_ENTITLEMENTS_GET,
+      { params: { id: tenantId } },
+    );
+    return res.data;
+  },
+
+  assignTenantPlan: async (
+    tenantId: string,
+    planKey: string,
+  ): Promise<TenantEntitlements> => {
+    const res = await apiClient.request<TenantEntitlementsResponse>(
+      API_CONTRACTS.PLANS.TENANT_PLAN_ASSIGN,
+      { params: { id: tenantId }, body: { planKey } },
     );
     return res.data;
   },

@@ -33,7 +33,10 @@ const STATUS_TRANSITIONS: Record<
     {
       label: "Activate",
       value: "ACTIVE",
-      perm: PermissionKeys.PlatformTenantUpdate,
+      // Backend gates ALL status transitions on platform.tenant.suspend
+      // (see /platform/tenants/:id/status). Match it so the UI gate is
+      // consistent with the authoritative check.
+      perm: PermissionKeys.PlatformTenantSuspend,
     },
     {
       label: "Suspend",

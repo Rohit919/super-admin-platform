@@ -12,11 +12,14 @@ import type { LoginBody } from "@app/api-contracts";
 export function useLogin() {
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
+  const setBootstrapped = useAuthStore((s) => s.setBootstrapped);
 
   return useMutation({
     mutationFn: (body: LoginBody) => authApi.login(body),
     onSuccess: (data) => {
       setSession({ accessToken: data.accessToken, user: data.user });
+      // We have a fresh in-memory token; no silent refresh needed on arrival.
+      setBootstrapped(true);
       navigate("/dashboard", { replace: true });
     },
   });

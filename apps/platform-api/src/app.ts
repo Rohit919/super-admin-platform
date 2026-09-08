@@ -34,6 +34,7 @@ import brandingRoutes from "./modules/branding/branding.routes.js";
 import tenantsRoutes from "./modules/tenants/tenants.routes.js";
 import platformRoutes from "./modules/platform/platform.routes.js";
 import credentialRoutes from "./modules/platform/credential.routes.js";
+import planRoutes from "./modules/platform/plan.routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -168,6 +169,7 @@ export async function buildApp() {
       await fastify.register(tenantsRoutes, { prefix: "/tenants" });
       await fastify.register(platformRoutes, { prefix: "/platform" });
       await fastify.register(credentialRoutes, { prefix: "/platform" });
+      await fastify.register(planRoutes, { prefix: "/platform" });
     },
     { prefix: `${app.config.API_PREFIX}/${app.config.API_VERSION}` },
   );

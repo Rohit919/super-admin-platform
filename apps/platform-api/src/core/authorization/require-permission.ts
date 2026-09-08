@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { PermissionKey } from "@app/api-contracts";
 import { UnauthorizedError, ForbiddenError } from "@core/errors/index.js";
+import { recordSecurityFailure } from "@core/observability/security-metrics.js";
 
 /**
  * Permission-based route guards. These are the primary authorization boundary:
@@ -51,6 +52,7 @@ export function requirePermission(permission: PermissionKey) {
       await request.server.authorization.getContextForRequest(request);
     if (!ctx.permissions.includes(permission)) {
       logDenial(request, ctx.userId, permission);
+      recordSecurityFailure("authorization", "missing_permission");
       throw new ForbiddenError(
         "You do not have permission to perform this action.",
       );
@@ -70,6 +72,7 @@ export function requireAnyPermission(permissions: PermissionKey[]) {
       await request.server.authorization.getContextForRequest(request);
     if (!permissions.some((p) => ctx.permissions.includes(p))) {
       logDenial(request, ctx.userId, permissions.join("|"));
+      recordSecurityFailure("authorization", "missing_permission");
       throw new ForbiddenError(
         "You do not have permission to perform this action.",
       );
@@ -89,6 +92,7 @@ export function requireAllPermissions(permissions: PermissionKey[]) {
       await request.server.authorization.getContextForRequest(request);
     if (!permissions.every((p) => ctx.permissions.includes(p))) {
       logDenial(request, ctx.userId, permissions.join("&"));
+      recordSecurityFailure("authorization", "missing_permission");
       throw new ForbiddenError(
         "You do not have permission to perform this action.",
       );

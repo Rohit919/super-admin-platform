@@ -70,6 +70,7 @@ describe("Platform authorization boundary", () => {
       prisma: {
         platformMembership: {
           findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+          count: vi.fn().mockResolvedValue(0),
         },
         userRole: {
           findMany: vi
@@ -78,8 +79,12 @@ describe("Platform authorization boundary", () => {
               rolesWithPerms([PermissionKeys.PlatformDashboardView]),
             ),
         },
-        tenant: { count: vi.fn().mockResolvedValue(0) },
+        tenant: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
         user: { count: vi.fn().mockResolvedValue(0) },
+        tenantApiCredential: { count: vi.fn().mockResolvedValue(0) },
       },
     });
     const res = await app.inject({
@@ -88,7 +93,12 @@ describe("Platform authorization boundary", () => {
       headers: { authorization: `Bearer ${token(app)}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toHaveProperty("totalTenants");
+    const body = res.json();
+    expect(body.data).toHaveProperty("totalTenants");
+    expect(body.data).toHaveProperty("platformUsers");
+    expect(body.data).toHaveProperty("activeApiCredentials");
+    expect(body.data).toHaveProperty("recentTenants");
+    expect(Array.isArray(body.data.recentTenants)).toBe(true);
     await app.close();
   });
 
@@ -327,6 +337,23 @@ describe("Platform tenant status changes", () => {
   it("reactivates a SUSPENDED tenant → ACTIVE (200)", async () => {
     const app = await buildTestApp(
       withPerms([PermissionKeys.PlatformTenantSuspend], "SUSPENDED"),
+    );
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/status`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { status: "ACTIVE" },
+    });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("activates a TRIAL tenant → ACTIVE with platform.tenant.suspend (200)", async () => {
+    // The "Activate" transition (TRIAL → ACTIVE) is gated by the same
+    // platform.tenant.suspend permission as every other status change — it does
+    // NOT require platform.tenant.update. The Super Admin UI mirrors this key.
+    const app = await buildTestApp(
+      withPerms([PermissionKeys.PlatformTenantSuspend], "TRIAL"),
     );
     const res = await app.inject({
       method: "PATCH",

@@ -26,6 +26,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check:api-drift": "node scripts/check-api-drift.mjs",
+    "check:boundary": "node scripts/check-boundary.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",

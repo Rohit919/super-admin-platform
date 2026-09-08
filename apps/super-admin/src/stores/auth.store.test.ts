@@ -26,15 +26,37 @@ describe("auth.store", () => {
   });
 
   it("can() reflects the effective permissions from bootstrap", () => {
-    useAuthStore
-      .getState()
-      .setAuthorization({
-        roles: ["SUPER_ADMIN"],
-        permissions: ["platform.audit.view"],
-      });
+    useAuthStore.getState().setAuthorization({
+      roles: ["SUPER_ADMIN"],
+      permissions: ["platform.audit.view"],
+    });
     const s = useAuthStore.getState();
     expect(s.can("platform.audit.view")).toBe(true);
     expect(s.can("platform.tenant.archive")).toBe(false);
+  });
+
+  it("never persists the access token, roles, or permissions to localStorage (Phase 19.2)", () => {
+    const s = useAuthStore.getState();
+    s.setSession({
+      accessToken: "super-secret-jwt",
+      user: { id: "u1", email: "a@b.io", name: "A", role: "user" },
+    });
+    s.setAuthorization({
+      roles: ["SUPER_ADMIN"],
+      permissions: ["platform.audit.view"],
+    });
+
+    const raw = window.localStorage.getItem("super-admin-auth") ?? "";
+    // The bearer JWT and authorization data must not touch disk...
+    expect(raw).not.toContain("super-secret-jwt");
+    expect(raw).not.toContain("SUPER_ADMIN");
+    expect(raw).not.toContain("platform.audit.view");
+
+    // ...but the non-sensitive identity may be persisted for a flash-free shell.
+    const persisted = raw ? JSON.parse(raw) : { state: {} };
+    expect(persisted.state.user?.email).toBe("a@b.io");
+    expect(persisted.state.accessToken).toBeUndefined();
+    expect(persisted.state.permissions).toBeUndefined();
   });
 
   it("clearSession wipes token, user, roles, and permissions", () => {

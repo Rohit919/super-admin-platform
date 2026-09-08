@@ -171,3 +171,22 @@ groups:
           summary: "Orchestrator pipeline errors ({{ $labels.service }}/{{ $labels.stage }})"
           description: "Pipeline error rate is {{ $value }}/s over the last 5m."
           runbook_url: "https://github.com/OWNER/super-admin-platform/blob/main/docs/runbooks/orchestrator-errors.md"
+
+  # ── Security rules ─────────────────────────────────────────────────────────
+  - name: security.rules
+    rules:
+      # A spike in denied privileged access (platform gate / permission guards).
+      # Distinct from ordinary 4xx: this counts ONLY denied authorization/
+      # platform-access attempts (platform_security_failures_total, emitted by
+      # the require-platform / require-permission guards). A sustained rise can
+      # indicate credential stuffing, a compromised account probing, or a
+      # broken permission grant after a change.
+      - alert: PlatformAuthFailureSpike
+        expr: sum(rate(platform_security_failures_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated platform authorization-failure rate"
+          description: "Denied platform/authorization attempts are averaging {{ $value | humanize }}/s over 5m — investigate for compromised accounts, misconfigured grants, or abuse."
+          runbook_url: "https://github.com/OWNER/super-admin-platform/blob/main/docs/runbooks/super-admin-account-compromise.md"

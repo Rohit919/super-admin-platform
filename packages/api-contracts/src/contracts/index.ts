@@ -21,7 +21,7 @@ export {
 export { DASHBOARD_CONTRACTS } from "./dashboard.js";
 export { BRANDING_CONTRACTS } from "./branding.js";
 export { TENANT_CONTRACTS } from "./tenants.js";
-export { PLATFORM_CONTRACTS } from "./platform.js";
+export { PLATFORM_CONTRACTS, PLAN_CONTRACTS } from "./platform.js";
 
 import { AUTH_CONTRACTS } from "./auth.js";
 import { USER_CONTRACTS } from "./users.js";
@@ -33,7 +33,7 @@ import {
 import { DASHBOARD_CONTRACTS } from "./dashboard.js";
 import { BRANDING_CONTRACTS } from "./branding.js";
 import { TENANT_CONTRACTS } from "./tenants.js";
-import { PLATFORM_CONTRACTS } from "./platform.js";
+import { PLATFORM_CONTRACTS, PLAN_CONTRACTS } from "./platform.js";
 
 /** Aggregate contract registry — one root object for tooling. */
 export const API_CONTRACTS = {
@@ -46,4 +46,5 @@ export const API_CONTRACTS = {
   BRANDING: BRANDING_CONTRACTS,
   TENANTS: TENANT_CONTRACTS,
   PLATFORM: PLATFORM_CONTRACTS,
+  PLANS: PLAN_CONTRACTS,
 } as const;

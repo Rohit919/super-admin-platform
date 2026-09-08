@@ -25,6 +25,9 @@ export const AuditActions = {
   TenantCredentialCreated: "TENANT_CREDENTIAL_CREATED",
   TenantCredentialRotated: "TENANT_CREDENTIAL_ROTATED",
   TenantCredentialRevoked: "TENANT_CREDENTIAL_REVOKED",
+  TenantPlanAssigned: "TENANT_PLAN_ASSIGNED",
+  TenantEntitlementOverrideSet: "TENANT_ENTITLEMENT_OVERRIDE_SET",
+  TenantEntitlementOverrideCleared: "TENANT_ENTITLEMENT_OVERRIDE_CLEARED",
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

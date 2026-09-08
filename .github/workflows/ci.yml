@@ -35,6 +35,8 @@ jobs:
         run: npm run lint
       - name: API endpoint drift check
         run: npm run check:api-drift
+      - name: Platform/Logistics boundary check
+        run: npm run check:boundary
       - name: Format check (non-blocking)
         run: npx prettier --check "apps/**/*.{ts,tsx}" "packages/**/*.ts" || true
 
@@ -100,8 +102,10 @@ jobs:
       - run: npm run build:contracts
       - name: Apply migrations
         run: npx prisma migrate deploy
-      - name: Run tests with coverage
+      - name: Run API tests with coverage
         run: npm run test:coverage --workspace @app/api
+      - name: Run Super Admin frontend tests
+        run: npm run test:super-admin
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:

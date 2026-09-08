@@ -81,6 +81,12 @@ export const PermissionKeys = {
 
   PlatformPermissionView: "platform.permission.view",
 
+  // Plans & entitlements (platform-managed, non-commercial capability model).
+  PlatformPlanView: "platform.plan.view",
+  PlatformPlanManage: "platform.plan.manage",
+  PlatformEntitlementView: "platform.entitlement.view",
+  PlatformEntitlementManage: "platform.entitlement.manage",
+
   PlatformAuditView: "platform.audit.view",
 
   PlatformSettingsView: "platform.settings.view",

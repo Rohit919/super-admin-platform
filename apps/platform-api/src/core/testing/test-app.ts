@@ -26,6 +26,7 @@ import adminRoutes from "../../modules/admin/admin.routes.js";
 import tenantsRoutes from "../../modules/tenants/tenants.routes.js";
 import platformRoutes from "../../modules/platform/platform.routes.js";
 import credentialRoutes from "../../modules/platform/credential.routes.js";
+import planRoutes from "../../modules/platform/plan.routes.js";
 import type { Env } from "../../plugins/env.js";
 import type { PrismaClient } from "@prisma/client";
 
@@ -161,6 +162,37 @@ export function buildMockPrisma(
       create: async () => null,
       update: async () => null,
       upsert: async () => null,
+      count: async () => 0,
+    },
+    tenantApiCredential: {
+      findUnique: async () => null,
+      findMany: async () => [],
+      create: async () => null,
+      update: async () => null,
+      count: async () => 0,
+    },
+    // Plans & entitlements (Phase 19.6). Default empty so tests opt in.
+    plan: {
+      findMany: async () => [],
+      findUnique: async () => null,
+      upsert: async () => null,
+    },
+    entitlement: {
+      findMany: async () => [],
+      findUnique: async () => null,
+      upsert: async () => null,
+    },
+    planEntitlement: {
+      upsert: async () => null,
+    },
+    tenantPlan: {
+      findUnique: async () => null,
+      upsert: async () => null,
+    },
+    tenantEntitlementOverride: {
+      findMany: async () => [],
+      upsert: async () => null,
+      deleteMany: async () => ({ count: 0 }),
     },
     // $transaction: run the callback with the same mock client (interactive form).
     $transaction: async (arg: unknown) => {
@@ -292,6 +324,7 @@ export async function buildTestApp(options: BuildTestAppOptions = {}) {
       await fastify.register(tenantsRoutes, { prefix: "/tenants" });
       await fastify.register(platformRoutes, { prefix: "/platform" });
       await fastify.register(credentialRoutes, { prefix: "/platform" });
+      await fastify.register(planRoutes, { prefix: "/platform" });
     },
     { prefix: `${env.API_PREFIX}/${env.API_VERSION}` },
   );

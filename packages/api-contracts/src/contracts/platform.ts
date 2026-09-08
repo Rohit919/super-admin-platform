@@ -19,10 +19,16 @@ import {
   TenantApiCredentialResponse,
   PlatformAuditLogListResponse,
   PlatformAuditLogQuery,
+  PlanListResponse,
+  AssignTenantPlanBody,
+  TenantEntitlementsResponse,
+  SetTenantEntitlementOverrideBody,
 } from "../platform.js";
 
 /** Path params for credential routes. */
 const TenantIdParams = Type.Object({ tenantId: IdSchema });
+/** Path params for a tenant entitlement override (tenant id + entitlement key). */
+const EntitlementKeyParams = Type.Object({ id: IdSchema, key: Type.String() });
 const CredentialParams = Type.Object({
   tenantId: IdSchema,
   credentialId: IdSchema,
@@ -219,6 +225,81 @@ export const PLATFORM_CONTRACTS = {
     errors: [ErrorCode.UNAUTHORIZED, ErrorCode.PLATFORM_ACCESS_DENIED],
     operationId: "platform.audit.list",
     summary: "List platform audit events (metadata never contains secrets)",
+    tags: ["Platform"],
+  },
+} satisfies Record<string, ApiEndpoint>;
+
+/**
+ * Plans & Entitlements contracts (Phase 19.6). Non-commercial capability model;
+ * every endpoint is platform-guarded. Viewing uses platform.plan.view /
+ * platform.entitlement.view; mutations use platform.plan.manage /
+ * platform.entitlement.manage.
+ */
+export const PLAN_CONTRACTS = {
+  PLANS_LIST: {
+    method: HttpMethod.GET,
+    path: PLATFORM_ENDPOINTS.PLANS,
+    auth: "required",
+    permission: PermissionKeys.PlatformPlanView,
+    response: { 200: PlanListResponse },
+    errors: [ErrorCode.UNAUTHORIZED, ErrorCode.PLATFORM_ACCESS_DENIED],
+    operationId: "platform.plans.list",
+    summary: "List plans and their entitlement values",
+    tags: ["Platform"],
+  },
+
+  TENANT_PLAN_ASSIGN: {
+    method: HttpMethod.PUT,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_PLAN,
+    auth: "required",
+    permission: PermissionKeys.PlatformPlanManage,
+    params: IdParams,
+    body: AssignTenantPlanBody,
+    response: { 200: TenantEntitlementsResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+      ErrorCode.VALIDATION_ERROR,
+    ],
+    operationId: "platform.tenants.plan.assign",
+    summary: "Assign a plan to a tenant",
+    tags: ["Platform"],
+  },
+
+  TENANT_ENTITLEMENTS_GET: {
+    method: HttpMethod.GET,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_ENTITLEMENTS,
+    auth: "required",
+    permission: PermissionKeys.PlatformEntitlementView,
+    params: IdParams,
+    response: { 200: TenantEntitlementsResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+    ],
+    operationId: "platform.tenants.entitlements.get",
+    summary: "Get a tenant's effective entitlements (plan + overrides)",
+    tags: ["Platform"],
+  },
+
+  TENANT_ENTITLEMENT_OVERRIDE_SET: {
+    method: HttpMethod.PUT,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_ENTITLEMENT_OVERRIDE,
+    auth: "required",
+    permission: PermissionKeys.PlatformEntitlementManage,
+    params: EntitlementKeyParams,
+    body: SetTenantEntitlementOverrideBody,
+    response: { 200: TenantEntitlementsResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+      ErrorCode.VALIDATION_ERROR,
+    ],
+    operationId: "platform.tenants.entitlements.override",
+    summary: "Set or clear a per-tenant entitlement override",
     tags: ["Platform"],
   },
 } satisfies Record<string, ApiEndpoint>;

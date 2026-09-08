@@ -66,13 +66,35 @@ export const UpdateTenantStatusBody = Type.Object({
 export type UpdateTenantStatusBody = Static<typeof UpdateTenantStatusBody>;
 
 // ── Platform dashboard stats ─────────────────────────────────────────────────
+// A SaaS control-plane overview. Every field is derived from existing platform
+// tables (tenants, users, platform memberships, tenant API credentials) — no
+// fabricated or tenant-operational (logistics) data. Capabilities that don't
+// exist yet (plans, entitlements, feature flags, provisioning status, dedicated
+// security events) are intentionally absent until their features land.
 export const PlatformDashboardStats = Type.Object({
   totalTenants: Type.Integer({ minimum: 0 }),
   activeTenants: Type.Integer({ minimum: 0 }),
   trialTenants: Type.Integer({ minimum: 0 }),
   suspendedTenants: Type.Integer({ minimum: 0 }),
   archivedTenants: Type.Integer({ minimum: 0 }),
+  // Every user identity on the platform.
   totalUsers: Type.Integer({ minimum: 0 }),
+  // Users with a platform membership (Super Admin operators), distinct from the
+  // total identity count above.
+  platformUsers: Type.Integer({ minimum: 0 }),
+  // Tenant API credentials currently in the ACTIVE state.
+  activeApiCredentials: Type.Integer({ minimum: 0 }),
+  // The most recently created tenants (compact), for an at-a-glance activity
+  // sense on the control-center overview.
+  recentTenants: Type.Array(
+    Type.Object({
+      id: Type.String(),
+      name: Type.String(),
+      slug: Type.String(),
+      status: TenantStatus,
+      createdAt: Type.String(),
+    }),
+  ),
 });
 export type PlatformDashboardStats = Static<typeof PlatformDashboardStats>;
 
@@ -206,3 +228,85 @@ export const PlatformAuditLogQuery = Type.Object({
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
 });
 export type PlatformAuditLogQuery = Static<typeof PlatformAuditLogQuery>;
+
+// ── Plans & Entitlements (Phase 19.6) ─────────────────────────────────────────
+// Non-commercial capability model. No pricing/billing fields — a Plan is a named
+// bundle of entitlement values; a Tenant has at most one active plan plus
+// optional per-tenant overrides.
+export const EntitlementValueType = Type.Union([
+  Type.Literal("BOOLEAN"),
+  Type.Literal("NUMERIC"),
+  Type.Literal("STRING"),
+]);
+export type EntitlementValueType = Static<typeof EntitlementValueType>;
+
+/** One entitlement value within a plan. */
+export const PlanEntitlementDto = Type.Object({
+  key: Type.String(),
+  name: Type.String(),
+  valueType: EntitlementValueType,
+  value: Type.String(),
+});
+export type PlanEntitlementDto = Static<typeof PlanEntitlementDto>;
+
+export const PlanDto = Type.Object({
+  id: Type.String(),
+  key: Type.String(),
+  name: Type.String(),
+  description: Type.Union([Type.String(), Type.Null()]),
+  isSystem: Type.Boolean(),
+  entitlements: Type.Array(PlanEntitlementDto),
+  createdAt: Type.String(),
+});
+export type PlanDto = Static<typeof PlanDto>;
+
+export const PlanListResponse = Type.Object({
+  success: Type.Literal(true),
+  data: Type.Array(PlanDto),
+});
+export type PlanListResponse = Static<typeof PlanListResponse>;
+
+/** Assign an existing plan to a tenant (by plan key). */
+export const AssignTenantPlanBody = Type.Object({
+  planKey: Type.String({ minLength: 1, maxLength: 64 }),
+});
+export type AssignTenantPlanBody = Static<typeof AssignTenantPlanBody>;
+
+/**
+ * A tenant's EFFECTIVE entitlement: the plan value, optionally replaced by a
+ * per-tenant override. `source` tells the operator where the value came from.
+ */
+export const TenantEntitlementDto = Type.Object({
+  key: Type.String(),
+  name: Type.String(),
+  valueType: EntitlementValueType,
+  value: Type.String(),
+  source: Type.Union([Type.Literal("PLAN"), Type.Literal("OVERRIDE")]),
+});
+export type TenantEntitlementDto = Static<typeof TenantEntitlementDto>;
+
+export const TenantEntitlementsResponse = Type.Object({
+  success: Type.Literal(true),
+  data: Type.Object({
+    tenantId: Type.String(),
+    plan: Type.Union([
+      Type.Object({ key: Type.String(), name: Type.String() }),
+      Type.Null(),
+    ]),
+    entitlements: Type.Array(TenantEntitlementDto),
+  }),
+});
+export type TenantEntitlementsResponse = Static<
+  typeof TenantEntitlementsResponse
+>;
+
+/**
+ * Set or clear a per-tenant override for one entitlement. `value: null` clears
+ * the override (falls back to the plan value).
+ */
+export const SetTenantEntitlementOverrideBody = Type.Object({
+  value: Type.Union([Type.String({ maxLength: 500 }), Type.Null()]),
+});
+export type SetTenantEntitlementOverrideBody = Static<
+  typeof SetTenantEntitlementOverrideBody
+>;
