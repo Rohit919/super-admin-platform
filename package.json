@@ -21,6 +21,7 @@
     "build:super-admin": "npm run build --workspace @app/super-admin",
     "build": "npm run build:contracts && npm run build:api && npm run build:super-admin",
     "test": "npm run test --workspace @app/api",
+    "test:super-admin": "npm run test --workspace @app/super-admin",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
