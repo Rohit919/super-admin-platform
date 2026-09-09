@@ -166,7 +166,16 @@ describe("Platform tenant provisioning", () => {
           create: tenantCreate,
         },
         user: {
-          findUnique: vi.fn().mockResolvedValue(null),
+          // The access-token integrity check queries with a narrow select
+          // { permissionVersion, passwordChangedAt }; satisfy that. The
+          // handler's admin-email pre-check (no such select) still sees no
+          // existing user and returns null.
+          findUnique: vi.fn(async (...a: unknown[]) => {
+            const args = a[0] as { select?: { permissionVersion?: boolean } };
+            return args?.select?.permissionVersion
+              ? { permissionVersion: 0, passwordChangedAt: null }
+              : null;
+          }),
           create: userCreate,
         },
         tenantMembership: { create: membershipCreate },

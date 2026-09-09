@@ -436,6 +436,107 @@ describe("GET /api/v1/auth/verify", () => {
   });
 });
 
+// ─── Phase 7 — Access-token integrity (assertTokenCurrent) ──────────────────
+// A signed, unexpired access token must still be rejected when it no longer
+// reflects the user's current state: a bumped permissionVersion, a password
+// changed after the token was issued, or a user that no longer exists.
+describe("Access-token integrity check", () => {
+  it("rejects a token whose permissionVersion is behind the user's current version", async () => {
+    const app = await buildTestApp({
+      prisma: {
+        user: {
+          // Integrity check (narrow select) sees the user is now at version 3.
+          findUnique: vi.fn(async (...a: unknown[]) => {
+            const args = a[0] as { select?: { permissionVersion?: boolean } };
+            return args?.select?.permissionVersion
+              ? { permissionVersion: 3, passwordChangedAt: null }
+              : null;
+          }),
+        },
+      },
+    });
+    // Token was signed at version 1 (stale).
+    const token = signTestToken(app, {
+      id: "user-test-id",
+      email: "test@example.com",
+      role: "user",
+      permissionVersion: 1,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE_URL}/verify`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("TOKEN_REVOKED");
+    await app.close();
+  });
+
+  it("rejects a token issued before the user's last password change", async () => {
+    // passwordChangedAt is far in the future relative to the token's iat (now),
+    // so the token predates the change.
+    const changedAt = new Date(Date.now() + 60 * 60 * 1000);
+    const app = await buildTestApp({
+      prisma: {
+        user: {
+          findUnique: vi.fn(async (...a: unknown[]) => {
+            const args = a[0] as { select?: { permissionVersion?: boolean } };
+            return args?.select?.permissionVersion
+              ? { permissionVersion: 0, passwordChangedAt: changedAt }
+              : null;
+          }),
+        },
+      },
+    });
+    const token = signTestToken(app);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE_URL}/verify`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("TOKEN_REVOKED");
+    await app.close();
+  });
+
+  it("rejects a token whose user no longer exists (fail closed)", async () => {
+    const app = await buildTestApp({
+      prisma: {
+        user: { findUnique: vi.fn(async () => null) },
+      },
+    });
+    const token = signTestToken(app);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE_URL}/verify`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("TOKEN_REVOKED");
+    await app.close();
+  });
+
+  it("accepts a current token (permissionVersion matches, no password change)", async () => {
+    const app = await buildTestApp();
+    const token = signTestToken(app);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE_URL}/verify`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+});
+
 // ─── Phase 1 — Account lockout (REQ-006) ────────────────────────────────────
 
 describe("POST /api/v1/auth/login — account lockout", () => {

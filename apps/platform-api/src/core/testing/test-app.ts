@@ -83,7 +83,17 @@ export function buildMockPrisma(
     $disconnect: async () => {},
     $queryRaw: async () => [{ "?column?": 1 }],
     user: {
-      findUnique: async () => null,
+      // The access-token integrity check (assertTokenCurrent) looks the caller
+      // up with a NARROW select { permissionVersion, passwordChangedAt }. Return
+      // a valid current user for THAT shape so authenticated-route tests pass
+      // the check by default; all other lookups default to null (tests override
+      // as needed). This keeps the check transparent to existing tests.
+      findUnique: async (args?: {
+        select?: { permissionVersion?: boolean };
+      }) =>
+        args?.select?.permissionVersion
+          ? { permissionVersion: 0, passwordChangedAt: null }
+          : null,
       create: async () => null,
       update: async () => null,
       updateMany: async () => ({ count: 0 }),
@@ -342,10 +352,16 @@ export async function buildTestApp(options: BuildTestAppOptions = {}) {
 // ─── JWT helper ───────────────────────────────────────────────────────────────
 export function signTestToken(
   app: Awaited<ReturnType<typeof buildTestApp>>,
-  payload: { id: string; email: string; role: string } = {
+  payload: {
+    id: string;
+    email: string;
+    role: string;
+    permissionVersion?: number;
+  } = {
     id: "user-test-id",
     email: "test@example.com",
     role: "user",
+    permissionVersion: 0,
   },
 ): string {
   return app.jwt.sign(payload);

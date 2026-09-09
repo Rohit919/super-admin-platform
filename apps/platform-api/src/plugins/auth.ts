@@ -3,6 +3,7 @@ import fastifyAuth from "@fastify/auth";
 import fastifyJWT from "@fastify/jwt";
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { UnauthorizedError, ForbiddenError } from "@core/errors/index.js";
+import { assertTokenCurrent } from "../modules/auth/operations/assert-token-current.js";
 
 // JWT payload type
 export interface JWTPayload {
@@ -62,6 +63,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
   // Authentication decorator.
   // Throws UnauthorizedError so the global error handler emits the canonical
   // envelope with the stable UNAUTHORIZED code (API_CONVENTIONS §39).
+  //
+  // After verifying the signature/expiry, we re-check the token against the
+  // user's CURRENT state (permissionVersion + passwordChangedAt) so a stale or
+  // invalidated access token is rejected rather than trusted until expiry
+  // (Phase 7; see assertTokenCurrent). jwtVerify populates request.user with
+  // the claims (including `iat`).
   fastify.decorate(
     "authenticate",
     async function (request: FastifyRequest, _reply: FastifyReply) {
@@ -70,6 +77,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       } catch {
         throw new UnauthorizedError();
       }
+      // Integrity check throws its own UnauthorizedError(TOKEN_REVOKED) on a
+      // stale token; let it propagate with its specific code.
+      await assertTokenCurrent(
+        request.server.prisma,
+        request.user as JWTPayload & { iat?: number },
+      );
     },
   );
 
