@@ -1,7 +1,7 @@
 {
   "name": "@app/api-contracts",
   "version": "1.0.0",
-  "description": "Shared TypeBox API contracts consumed by the Platform API (platform-api), the Super Admin frontend, and the tenant Admin frontend",
+  "description": "Shared TypeBox API contracts for the Gym Platform API, consumed by the API and its client applications (super-admin, tenant-web, mobile)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

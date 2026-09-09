@@ -1,7 +1,7 @@
 {
   "name": "@app/api",
   "version": "1.0.0",
-  "description": "Platform API (platform-api) — Super Admin Platform control-plane backend (Fastify, Golden Orchestrator pattern)",
+  "description": "Platform API (platform-api) — centralized Gym Platform backend (Fastify, Prisma, Golden Orchestrator pattern)",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
