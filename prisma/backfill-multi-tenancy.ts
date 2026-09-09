@@ -8,7 +8,7 @@
  * It is IDEMPOTENT and NON-DESTRUCTIVE:
  *   - creates (or reuses) one default Tenant;
  *   - creates an ACTIVE TenantMembership for every existing user;
- *   - stamps existing Todo / UserRole / AuditLog rows with the default tenantId
+ *   - stamps existing UserRole / AuditLog rows with the default tenantId
  *     ONLY where tenantId IS NULL;
  *   - leaves platform/system Roles (SUPER_ADMIN etc.) as platform roles
  *     (tenantId stays NULL) — they are intentionally NOT tenant-scoped.
@@ -104,13 +104,7 @@ async function main(): Promise<void> {
     `✓ Tenant-role assignments stamped: ${stampedUserRoles.count} (platform assignments left as-is)`,
   );
 
-  // 5) Stamp existing Todo + AuditLog rows.
-  const todos = await prisma.todo.updateMany({
-    where: { tenantId: null },
-    data: { tenantId: tenant.id },
-  });
-  console.log(`✓ Todos stamped: ${todos.count}`);
-
+  // 5) Stamp existing AuditLog rows.
   const audits = await prisma.auditLog.updateMany({
     where: { tenantId: null },
     data: { tenantId: tenant.id },
