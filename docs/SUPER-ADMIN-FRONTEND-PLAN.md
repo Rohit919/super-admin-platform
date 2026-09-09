@@ -415,6 +415,12 @@ as Super Admin navigation permissions.
 
 # 10. Permissions Screen
 
+> **HISTORICAL (superseded by Phase 20.2):** A Platform Permissions administration
+> screen is intentionally **out of current Super Admin scope**. Platform permissions
+> remain active as authorization controls; no CRUD UI is planned. See
+> `PHASE-20-2` scope decision and `PLATFORM-API.md` §5. The section below is
+> retained as original planning history only.
+
 The Permissions page is a platform permission registry.
 
 Display:
@@ -448,6 +454,12 @@ The page should explain what each permission allows.
 ---
 
 # 11. Roles Screen
+
+> **HISTORICAL (superseded by Phase 20.2):** A Platform Roles administration screen
+> is intentionally **out of current Super Admin scope**. Platform RBAC enforcement
+> (`requirePlatformPermission`, `PlatformMembership`, `SUPER_ADMIN`) remains fully
+> active; a role-management CRUD UI is not a current product requirement. See
+> `PLATFORM-API.md` §5. The section below is retained as original planning history only.
 
 Platform roles are roles for operating the SaaS platform.
 

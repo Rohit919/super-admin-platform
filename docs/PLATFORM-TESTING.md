@@ -104,28 +104,15 @@ suite already proves.
 
 | Item                                                             | Covered                                                                                                        |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| protected routes / permission-aware nav / tenant + credential UX | ⚠️ **Not unit-tested** — `apps/super-admin` has no test suite. Verified via typecheck + production build only. |
+| protected routes / permission-aware nav / tenant + credential UX | ✅ **Vitest + RTL suite** (`auth.store`, `ProtectedRoute`, `platform-layout` nav filtering, page-level tests). |
 
-## 3. Honest gaps
+## 3. Gaps and scope notes (Phase 20.2 updated)
 
-- **Super Admin frontend has no automated tests.** The tenant Admin app (which
-  had RTL tests) was removed in an earlier session; `apps/super-admin` is
-  currently verified by typecheck + build, not unit/component tests. Adding a
-  Vitest + Testing Library setup for the platform frontend (protected-route
-  redirect, permission-aware nav, credential show-once UX) is a recommended
-  follow-up.
-- **DB-level isolation tests are structural, not live-connection.** "Platform
-  cannot connect to a Logistics DB" holds by construction (one datasource, no
-  logistics system) rather than by a runtime test — appropriate given no second
-  DB exists.
-- **Credential/audit tests use mock Prisma.** They prove route/service behavior
-  and the security contract (no secret leakage, correct actions) without a live
-  DB; end-to-end DB behavior is exercised by CI's real-Postgres run of the same
-  suite once the pending migrations are applied there.
-- **Legacy role-matrix authorization** (`core/authorization/{permissions,authorize,ownership}.ts`)
-  is now dead code (its only consumer, the demo `todos` module, was removed).
-  Any tests still covering it exercise unused code; removing that subsystem +
-  its tests is a recommended cleanup follow-up.
+- **Platform Roles / Permissions / Settings UI tests** — not applicable. Platform Roles and Permissions administration UI is intentionally outside the current Super Admin product scope (Phase 20.2). Settings is deferred. No tests are missing for nonexistent screens.
+- **DB-level isolation tests are structural, not live-connection.** "Platform cannot connect to a Logistics DB" holds by construction (one datasource, no logistics system) rather than by a runtime test — appropriate given no second DB exists.
+- **Credential/audit tests use mock Prisma.** They prove route/service behavior and the security contract without a live DB; end-to-end DB behavior is exercised by CI's real-Postgres run of the same suite.
+- **Legacy role-matrix authorization** (`core/authorization/{permissions,authorize,ownership}.ts`) was removed (Phase 14 post-conversion hardening). The associated tests were removed or rewritten.
+- **Both pending migrations have been applied.** The DB schema is up to date (13 migrations; confirmed by `prisma migrate status`).
 
 ## 4. Running
 
@@ -143,10 +130,4 @@ against a real Postgres service and applies migrations first.
 
 ## Gate
 
-Phase 16 verifies that the plan's §21 security-sensitive areas —
-authentication, authorization (incl. tenant-user-rejected and
-role-name-insufficient), tenant lifecycle, credentials (incl. secret-not-leaked
-and audit-generated), isolation, and platform audit (incl. no-secret-in-metadata)
-— are covered by the existing 231-test suite, and documents the honest gaps
-(no frontend unit tests; structural DB-isolation; dead legacy authz). No new
-behavior, schema, or database command was introduced.
+Phase 16 established the §21 test coverage. Phase 20.2 updated §3 to reflect the current state: the Super Admin frontend test suite exists (44 tests), both DB migrations are applied, the legacy role-matrix authz is removed, and Platform Roles/Permissions/Settings UI gaps are reclassified as intentionally out of scope or deferred — not missing functionality. The authorization system remains fully tested and intact.

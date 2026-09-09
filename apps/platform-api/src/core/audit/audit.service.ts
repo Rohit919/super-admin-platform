@@ -30,6 +30,10 @@ export const AuditActions = {
   TenantPlanAssigned: "TENANT_PLAN_ASSIGNED",
   TenantEntitlementOverrideSet: "TENANT_ENTITLEMENT_OVERRIDE_SET",
   TenantEntitlementOverrideCleared: "TENANT_ENTITLEMENT_OVERRIDE_CLEARED",
+
+  // ── Platform → Tenant control plane (Phase 21) ─────────────────────────────
+  // Branding pushed to a tenant runtime through the Tenant API S2S connection.
+  TenantBrandingUpdated: "TENANT_BRANDING_UPDATED",
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

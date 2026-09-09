@@ -35,11 +35,9 @@ Start with **Architecture**, then dive into a domain. Each doc describes the
 ## Status snapshot
 
 - Repo: platform-only monorepo — `apps/platform-api` + `apps/super-admin` + `packages/api-contracts`.
-- Tests: platform-api suite (Vitest, mock Prisma). See PLATFORM-TESTING.
-- **Pending migrations (authored, not executed):** `add_tenant_api_credentials`,
-  `remove_demo_models` — apply deliberately against the Platform DB.
-- Known follow-ups: legacy role-matrix authz is dead code (removal candidate);
-  `super-admin` has no frontend unit tests yet.
+- Tests: platform-api suite (Vitest, mock Prisma) + Super Admin frontend suite (Vitest + RTL). See PLATFORM-TESTING.
+- **Migrations:** applied — DB schema is up to date. Legacy role-matrix authz removed.
+- **Super Admin scope (Phase 20.2):** the Super Admin panel is the SaaS platform control plane — tenant lifecycle, provisioning, organization, plans, entitlements, credentials, platform users, audit, and platform authorization enforcement. Platform **Roles/Permissions administration UI** is intentionally out of scope (RBAC enforcement stays active). Platform **Settings UI** is deferred until a real settings domain exists. Tenant operational RBAC and logistics operations belong to the Tenant platform, not Super Admin.
 
 > Note: some older, source-inherited docs (ARCHITECTURE.md, DATABASE.md, RBAC*.md,
 > etc.) predate the conversion and may reference the original starter naming.

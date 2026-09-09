@@ -105,20 +105,22 @@ to tenant context"). Verified in code:
 A platform operator typically has **no** active tenant at all; the platform
 surface does not require or assume one.
 
-## 5. Plan §11 endpoint map — implemented vs deferred
+## 5. Platform API surface — current status (Phase 20.2 updated)
 
-| Plan §11 module                              | Status                     | Notes                                                                                                                                              |
-| -------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/platform/dashboard`                        | ✅ Implemented             | §3                                                                                                                                                 |
-| `/platform/tenants`, `/platform/tenants/:id` | ✅ Implemented             | list/create/get/status (§3)                                                                                                                        |
-| `/platform/tenants/:tenantId/credentials`    | ⏳ Deferred → **Phase 9**  | No routes yet; `TenantApiCredential` model does not exist yet (do not add now).                                                                    |
-| `/platform/users`                            | ✅ Implemented (read)      | List only. Create/update/suspend are deferred (registry keys `platform.user.create/update/suspend` exist).                                         |
-| `/platform/roles`, `/platform/permissions`   | ⏳ Deferred                | Registry keys (`platform.role.*`, `platform.permission.view`) exist; no platform-scoped routes yet. General RBAC admin lives under `/admin` today. |
-| `/platform/audit`                            | ⏳ Deferred → **Phase 10** | `AuditLog` model + `AuditService` exist; no `/platform/audit` read route yet (`platform.audit.view` key reserved).                                 |
+| Endpoint group                               | Status                     | Notes                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/platform/dashboard`                        | ✅ Implemented             | Live.                                                                                                                                                                                                                                                                                   |
+| `/platform/tenants`, `/platform/tenants/:id` | ✅ Implemented             | List, create, get, status, overview, organization.                                                                                                                                                                                                                                      |
+| `/platform/tenants/:tenantId/credentials`    | ✅ Implemented             | Create/list/rotate/revoke; `TenantApiCredential` table exists.                                                                                                                                                                                                                          |
+| `/platform/audit`                            | ✅ Implemented             | `GET /platform/audit` with filters; `platform.audit.view` permission.                                                                                                                                                                                                                   |
+| `/platform/users`                            | ✅ Implemented (read)      | List platform users.                                                                                                                                                                                                                                                                    |
+| `/platform/roles`                            | ⏭ **Out of current scope** | Platform RBAC _enforcement_ is active (`requirePlatformPermission`). A CRUD UI for managing roles is intentionally outside the current Super Admin product scope (Phase 20.2). Registry keys exist; no routes are planned until a future phase explicitly approves RBAC administration. |
+| `/platform/permissions`                      | ⏭ **Out of current scope** | Same as roles — permissions work as authorization controls. No management endpoint is required or planned.                                                                                                                                                                              |
+| `/platform/settings`                         | ⏸ **Deferred**             | No approved settings domain, persistence model, API, or authorization model exists. Do not build a placeholder.                                                                                                                                                                         |
 
-**Deferred endpoints are intentionally not stubbed.** Per the operating rules,
-routes are added only when their concrete feature (and any required model) is
-built in the owning phase — no placeholder handlers, no invented persistence.
+Platform RBAC _enforcement_ (`requirePlatformPermission`, `PlatformMembership` gate, `platform.*` permission resolution) remains fully active and is **not** affected by the absence of CRUD screens.
+
+**No deferred endpoints are stubbed.** Routes are added only when a concrete feature, model, and product approval exist.
 
 ## 6. Module structure
 
@@ -154,10 +156,4 @@ properties are covered without a live database.
 
 ## Gate
 
-Phase 6 verifies and documents the `/api/v1/platform/*` surface: base path and
-registration, the uniform authenticate + `requirePlatformPermission` contract on
-every endpoint, the canonical success/error envelopes, the no-silent-tenant-
-fallback guarantee (platform ops use the raw client explicitly), and an honest
-map of implemented vs deferred plan endpoints (credentials → Phase 9, audit →
-Phase 10, platform roles/permissions and user mutations reserved). No new API
-code, schema, migration, or database command was required; existing tests pass.
+Phase 6 verified the `/api/v1/platform/*` surface. Phase 20.2 updated §5 to reflect the current implementation state (credentials and audit are implemented; platform roles/permissions administration is intentionally out of current scope, not merely deferred; settings is deferred pending a real settings domain). Platform RBAC enforcement remains fully intact.

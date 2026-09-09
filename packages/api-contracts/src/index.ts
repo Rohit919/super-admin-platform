@@ -11,5 +11,6 @@ export * from "./dashboard.js";
 export * from "./branding.js";
 export * from "./tenants.js";
 export * from "./platform.js";
+export * from "./tenant-platform.js";
 export * from "./endpoints/index.js";
 export * from "./contracts/index.js";

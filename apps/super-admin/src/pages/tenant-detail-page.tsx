@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   MapPin,
   Package,
+  Palette,
   Pencil,
   PlayCircle,
   Plus,
@@ -39,6 +40,8 @@ import {
   type TenantOrganizationDto,
   type UpdateTenantOrganizationBody,
   type TenantStatus,
+  type AppBranding,
+  type UpdateTenantBrandingBody,
 } from "@app/api-contracts";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -245,6 +248,10 @@ export function TenantDetailPage() {
       // required to load this page). Editing is gated separately on
       // platform.tenant.update inside the panel.
       { value: "organization", label: "Organization", icon: Building2 },
+      // Branding is readable with platform.tenant.view (already required to
+      // load this page). Editing is gated separately on platform.tenant.update
+      // inside the panel. Managed through the Platform → Tenant API boundary.
+      { value: "branding", label: "Branding", icon: Palette },
     ];
     // Lifecycle history is reconstructed from audit, so it is gated on audit view.
     if (canViewAudit)
@@ -474,6 +481,9 @@ export function TenantDetailPage() {
         // Keyed by tenant id so switching tenants fully remounts the panel and
         // resets any in-progress edit draft — no cross-tenant state bleed.
         <OrganizationPanel key={id} tenantId={id} canEdit={canUpdate} />
+      )}
+      {tab === "branding" && (
+        <BrandingPanel key={id} tenantId={id} canEdit={canUpdate} />
       )}
       {tab === "lifecycle" && canViewAudit && (
         <LifecycleTab
@@ -2432,5 +2442,409 @@ function OrganizationPanel({
         </Button>
       </div>
     </form>
+  );
+}
+
+// ── Branding panel (Phase 21) ────────────────────────────────────────────────
+// Platform-level management of the tenant's white-label branding. Reads/writes
+// go through the Platform API, which proxies to the Tenant API over S2S — the
+// browser NEVER calls the Tenant API directly. Editing is gated on
+// platform.tenant.update; viewing on platform.tenant.view (already required to
+// reach this page). A connection card shows whether the Tenant runtime is
+// reachable so the operator understands why branding might be unavailable.
+
+/** Editable top-level branding fields as a flat draft (strings for inputs). */
+interface BrandingDraft {
+  appName: string;
+  shortName: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  logo: string;
+  logoDark: string;
+  icon: string;
+  favicon: string;
+  companyName: string;
+  description: string;
+}
+
+function brandingToDraft(b: AppBranding): BrandingDraft {
+  return {
+    appName: b.appName ?? "",
+    shortName: b.shortName ?? "",
+    primary: b.colors?.primary ?? "",
+    secondary: b.colors?.secondary ?? "",
+    accent: b.colors?.accent ?? "",
+    logo: b.logo ?? "",
+    logoDark: b.logoDark ?? "",
+    icon: b.icon ?? "",
+    favicon: b.favicon ?? "",
+    companyName: b.metadata?.companyName ?? "",
+    description: b.metadata?.description ?? "",
+  };
+}
+
+/**
+ * Build a PARTIAL update body from the draft vs the current branding. `colors`
+ * and `metadata` are whole-object replacements (contract semantics), so we send
+ * the full sub-object whenever any of its fields changed.
+ */
+function draftToBrandingBody(
+  draft: BrandingDraft,
+  current: AppBranding,
+): UpdateTenantBrandingBody {
+  const body: UpdateTenantBrandingBody = {};
+  const t = (s: string) => s.trim();
+
+  if (t(draft.appName) !== (current.appName ?? ""))
+    body.appName = t(draft.appName);
+  if (t(draft.shortName) !== (current.shortName ?? ""))
+    body.shortName = t(draft.shortName);
+
+  const colorsChanged =
+    t(draft.primary) !== (current.colors?.primary ?? "") ||
+    t(draft.secondary) !== (current.colors?.secondary ?? "") ||
+    t(draft.accent) !== (current.colors?.accent ?? "");
+  if (colorsChanged) {
+    body.colors = {
+      primary: t(draft.primary),
+      ...(t(draft.secondary) ? { secondary: t(draft.secondary) } : {}),
+      ...(t(draft.accent) ? { accent: t(draft.accent) } : {}),
+    };
+  }
+
+  for (const key of ["logo", "logoDark", "icon", "favicon"] as const) {
+    if (t(draft[key]) !== (current[key] ?? "")) {
+      (body as Record<string, string>)[key] = t(draft[key]);
+    }
+  }
+
+  const metaChanged =
+    t(draft.companyName) !== (current.metadata?.companyName ?? "") ||
+    t(draft.description) !== (current.metadata?.description ?? "");
+  if (metaChanged) {
+    body.metadata = {
+      ...(t(draft.companyName) ? { companyName: t(draft.companyName) } : {}),
+      ...(t(draft.description) ? { description: t(draft.description) } : {}),
+    };
+  }
+
+  return body;
+}
+
+/** Small non-sensitive connection indicator for the tenant runtime. */
+function TenantConnectionCard({ tenantId }: { tenantId: string }) {
+  const { data, isPending, error, refetch, isFetching } = useQuery({
+    queryKey: ["platform", "tenant", tenantId, "connection"],
+    queryFn: () => platformApi.tenantConnection(tenantId),
+    retry: false,
+  });
+
+  const reachable = data?.reachable ?? false;
+  const tone: "neutral" | "success" | "warning" | "danger" = isPending
+    ? "neutral"
+    : reachable && data?.status === "ready"
+      ? "success"
+      : reachable
+        ? "warning"
+        : "danger";
+
+  return (
+    <Card padded={false}>
+      <CardHeader
+        title="Tenant runtime connection"
+        icon={Activity}
+        description="Live reachability of the Tenant API (server-to-server)."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refetch()}
+            loading={isFetching}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Recheck
+          </Button>
+        }
+      />
+      <CardBody>
+        {isPending ? (
+          <Skeleton className="h-9 w-full" />
+        ) : error ? (
+          <p className="text-sm text-slate-500">
+            Unable to determine connection status.
+          </p>
+        ) : (
+          <InfoList>
+            <InfoRow
+              label="Reachable"
+              value={
+                <Badge tone={tone}>
+                  {reachable ? "Connected" : "Unreachable"}
+                </Badge>
+              }
+            />
+            {reachable && (
+              <>
+                <InfoRow label="Status" value={data?.status} />
+                <InfoRow label="Environment" value={data?.environment} />
+                <InfoRow label="Version" value={data?.version} mono />
+              </>
+            )}
+            {!reachable && data?.detail && (
+              <InfoRow label="Detail" value={data.detail} />
+            )}
+          </InfoList>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function BrandingPanel({
+  tenantId,
+  canEdit,
+}: {
+  tenantId: string;
+  canEdit: boolean;
+}) {
+  const qc = useQueryClient();
+  const brandingKey = ["platform", "tenant", tenantId, "branding"];
+
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: brandingKey,
+    queryFn: () => platformApi.tenantBranding(tenantId),
+    retry: false,
+  });
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<BrandingDraft | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: (body: UpdateTenantBrandingBody) =>
+      platformApi.updateTenantBranding(tenantId, body),
+    onSuccess: (updated) => {
+      qc.setQueryData(brandingKey, updated);
+      // Branding writes are audited server-side; keep the audit view fresh.
+      void qc.invalidateQueries({
+        queryKey: ["platform", "tenant", tenantId, "audit"],
+      });
+      setEditing(false);
+      setDraft(null);
+      setSaveError(null);
+    },
+    onError: (e) =>
+      setSaveError(
+        e instanceof ApiError ? e.message : "Failed to save branding.",
+      ),
+  });
+
+  if (isPending) {
+    return (
+      <div className="space-y-6">
+        <TenantConnectionCard tenantId={tenantId} />
+        <Card padded={false}>
+          <CardHeader title="Branding" icon={Palette} />
+          <CardBody className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    // A Tenant API connection failure surfaces here (SERVICE_UNAVAILABLE). Show
+    // the connection card so the operator can see the runtime is unreachable.
+    return (
+      <div className="space-y-6">
+        <TenantConnectionCard tenantId={tenantId} />
+        <ErrorState
+          icon={AlertTriangle}
+          title="Unable to load branding"
+          description={
+            error instanceof ApiError && error.code === "SERVICE_UNAVAILABLE"
+              ? "The Tenant API could not be reached. Branding is managed on the tenant runtime."
+              : "Something went wrong while loading tenant branding."
+          }
+          requestId={error instanceof ApiError ? error.requestId : undefined}
+          onRetry={() => void refetch()}
+        />
+      </div>
+    );
+  }
+
+  const startEdit = () => {
+    setDraft(brandingToDraft(data));
+    setSaveError(null);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    if (save.isPending) return;
+    setDraft(null);
+    setSaveError(null);
+    setEditing(false);
+  };
+
+  // Read view.
+  if (!editing || !draft) {
+    return (
+      <div className="space-y-6">
+        <TenantConnectionCard tenantId={tenantId} />
+        <Card padded={false}>
+          <CardHeader
+            title="Branding"
+            icon={Palette}
+            description="White-label identity served to the tenant's Admin at runtime."
+            action={
+              canEdit ? (
+                <Button variant="outline" size="sm" onClick={startEdit}>
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  Edit branding
+                </Button>
+              ) : undefined
+            }
+          />
+          <CardBody className="py-1">
+            <InfoList>
+              <InfoRow label="App name" value={data.appName} />
+              <InfoRow label="Short name" value={data.shortName} />
+              <InfoRow
+                label="Primary color"
+                value={data.colors?.primary}
+                mono
+              />
+              <InfoRow
+                label="Secondary color"
+                value={data.colors?.secondary}
+                mono
+              />
+              <InfoRow label="Accent color" value={data.colors?.accent} mono />
+              <InfoRow label="Logo" value={data.logo} />
+              <InfoRow label="Logo (dark)" value={data.logoDark} />
+              <InfoRow label="Icon" value={data.icon} />
+              <InfoRow label="Favicon" value={data.favicon} />
+              <InfoRow
+                label="Company name"
+                value={data.metadata?.companyName}
+              />
+              <InfoRow label="Description" value={data.metadata?.description} />
+            </InfoList>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
+  // Edit form.
+  const setField = (key: keyof BrandingDraft, value: string) =>
+    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
+
+  const body = draftToBrandingBody(draft, data);
+  const dirty = Object.keys(body).length > 0;
+  // appName/shortName/primary are required by the contract — block clearing them.
+  const missingRequired =
+    !draft.appName.trim() || !draft.shortName.trim() || !draft.primary.trim();
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveError(null);
+    if (missingRequired || !dirty) return;
+    save.mutate(body);
+  };
+
+  const fields: Array<{
+    key: keyof BrandingDraft;
+    label: string;
+    hint?: string;
+    required?: boolean;
+    maxLength?: number;
+  }> = [
+    { key: "appName", label: "App name", required: true, maxLength: 80 },
+    { key: "shortName", label: "Short name", required: true, maxLength: 24 },
+    {
+      key: "primary",
+      label: "Primary color",
+      required: true,
+      hint: "hex, rgb(), hsl(), or an H S% L% triplet",
+      maxLength: 64,
+    },
+    { key: "secondary", label: "Secondary color", maxLength: 64 },
+    { key: "accent", label: "Accent color", maxLength: 64 },
+    {
+      key: "logo",
+      label: "Logo URL",
+      hint: "https URL or /relative path",
+      maxLength: 2048,
+    },
+    { key: "logoDark", label: "Logo (dark) URL", maxLength: 2048 },
+    { key: "icon", label: "Icon URL", maxLength: 2048 },
+    { key: "favicon", label: "Favicon URL", maxLength: 2048 },
+    { key: "companyName", label: "Company name", maxLength: 120 },
+    { key: "description", label: "Description", maxLength: 280 },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <TenantConnectionCard tenantId={tenantId} />
+      <form onSubmit={onSubmit} className="space-y-6">
+        <Card padded={false}>
+          <CardHeader
+            title="Edit branding"
+            icon={Palette}
+            description="Changes are pushed to the tenant runtime and applied on its next branding read."
+          />
+          <CardBody>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {fields.map((f) => {
+                const fieldId = `brand-${f.key}`;
+                const err =
+                  f.required && !draft[f.key].trim() ? "Required." : undefined;
+                return (
+                  <Field
+                    key={f.key}
+                    label={f.required ? `${f.label} *` : f.label}
+                    htmlFor={fieldId}
+                    hint={f.hint}
+                    error={err}
+                  >
+                    <Input
+                      id={fieldId}
+                      maxLength={f.maxLength}
+                      value={draft[f.key]}
+                      aria-invalid={Boolean(err)}
+                      onChange={(e) => setField(f.key, e.target.value)}
+                    />
+                  </Field>
+                );
+              })}
+            </div>
+          </CardBody>
+        </Card>
+
+        {saveError && (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {saveError}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="outline" onClick={cancelEdit}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            loading={save.isPending}
+            disabled={!dirty || missingRequired}
+          >
+            <Save className="h-4 w-4" aria-hidden />
+            Save branding
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }

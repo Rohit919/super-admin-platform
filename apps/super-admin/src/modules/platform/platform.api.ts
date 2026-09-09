@@ -28,6 +28,11 @@ import {
   type PlanDto,
   type PlanListResponse,
   type TenantEntitlementsResponse,
+  type AppBranding,
+  type UpdateTenantBrandingBody,
+  type TenantConnectionStatus,
+  type TenantBrandingResponse,
+  type TenantConnectionStatusResponse,
 } from "@app/api-contracts";
 
 /** Credential DTO plus the one-time plaintext secret (create/rotate only). */
@@ -112,6 +117,48 @@ export const platformApi = {
   ): Promise<TenantOrganizationDto> => {
     const res = await apiClient.request<TenantOrganizationResponse>(
       API_CONTRACTS.PLATFORM.TENANT_ORGANIZATION_UPDATE,
+      { params: { id }, body },
+    );
+    return res.data;
+  },
+
+  // ── Tenant platform connection & branding (Phase 21) ─────────────────────────
+  /**
+   * Runtime connection status for a tenant, resolved by the Platform API
+   * calling the Tenant API over S2S. `reachable:false` means the Tenant API
+   * could not be reached (never a false "healthy"). Requires platform.tenant.view.
+   */
+  tenantConnection: async (id: string): Promise<TenantConnectionStatus> => {
+    const res = await apiClient.request<TenantConnectionStatusResponse>(
+      API_CONTRACTS.TENANT_PLATFORM.TENANT_CONNECTION_GET,
+      { params: { id } },
+    );
+    return res.data;
+  },
+
+  /**
+   * Read the tenant's persisted branding via the Tenant API. Requires
+   * platform.tenant.view. The Super Admin UI NEVER calls the Tenant API
+   * directly — this proxies through the Platform API (Phase 21 §12/§29/§31).
+   */
+  tenantBranding: async (id: string): Promise<AppBranding> => {
+    const res = await apiClient.request<TenantBrandingResponse>(
+      API_CONTRACTS.TENANT_PLATFORM.TENANT_BRANDING_GET,
+      { params: { id } },
+    );
+    return res.data;
+  },
+
+  /**
+   * Partial branding update pushed to the Tenant API. Only provided keys
+   * change. Requires platform.tenant.update. Audited server-side.
+   */
+  updateTenantBranding: async (
+    id: string,
+    body: UpdateTenantBrandingBody,
+  ): Promise<AppBranding> => {
+    const res = await apiClient.request<TenantBrandingResponse>(
+      API_CONTRACTS.TENANT_PLATFORM.TENANT_BRANDING_UPDATE,
       { params: { id }, body },
     );
     return res.data;

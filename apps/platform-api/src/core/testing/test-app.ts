@@ -27,6 +27,7 @@ import tenantsRoutes from "../../modules/tenants/tenants.routes.js";
 import platformRoutes from "../../modules/platform/platform.routes.js";
 import credentialRoutes from "../../modules/platform/credential.routes.js";
 import planRoutes from "../../modules/platform/plan.routes.js";
+import tenantPlatformRoutes from "../../modules/platform/tenant-platform.routes.js";
 import type { Env } from "../../plugins/env.js";
 import type { PrismaClient } from "@prisma/client";
 
@@ -59,6 +60,10 @@ export const TEST_ENV: Env = {
   BRAND_APP_NAME: "Super Admin Platform",
   BRAND_SHORT_NAME: "Super Admin",
   BRAND_COLOR_PRIMARY: "#4f46e5",
+  // Tenant Platform connection (Phase 21). Unset URL/secret by default so tests
+  // exercise the "integration disabled" path; individual tests opt in via env.
+  TENANT_API_TIMEOUT_MS: 5000,
+  TENANT_API_ALLOW_HTTP: true,
 };
 
 // ─── mock Prisma type ─────────────────────────────────────────────────────────
@@ -325,6 +330,7 @@ export async function buildTestApp(options: BuildTestAppOptions = {}) {
       await fastify.register(platformRoutes, { prefix: "/platform" });
       await fastify.register(credentialRoutes, { prefix: "/platform" });
       await fastify.register(planRoutes, { prefix: "/platform" });
+      await fastify.register(tenantPlatformRoutes, { prefix: "/platform" });
     },
     { prefix: `${env.API_PREFIX}/${env.API_VERSION}` },
   );

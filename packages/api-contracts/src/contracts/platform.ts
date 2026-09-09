@@ -28,6 +28,11 @@ import {
   TenantEntitlementsResponse,
   SetTenantEntitlementOverrideBody,
 } from "../platform.js";
+import {
+  UpdateTenantBrandingBody,
+  TenantBrandingResponse,
+  TenantConnectionStatusResponse,
+} from "../tenant-platform.js";
 
 /** Path params for credential routes. */
 const TenantIdParams = Type.Object({ tenantId: IdSchema });
@@ -378,6 +383,70 @@ export const PLAN_CONTRACTS = {
     ],
     operationId: "platform.tenants.entitlements.override",
     summary: "Set or clear a per-tenant entitlement override",
+    tags: ["Platform"],
+  },
+} satisfies Record<string, ApiEndpoint>;
+
+/**
+ * Platform → Tenant control-plane contracts (Phase 21). The Platform proxies
+ * these to the Tenant API over authenticated S2S (TenantPlatformClient). View
+ * uses platform.tenant.view; branding writes use platform.tenant.update. A
+ * SERVICE_UNAVAILABLE (502/503) surfaces a Tenant API connection failure so the
+ * UI never reports a false success (§47).
+ */
+export const TENANT_PLATFORM_CONTRACTS = {
+  TENANT_CONNECTION_GET: {
+    method: HttpMethod.GET,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_CONNECTION,
+    auth: "required",
+    permission: PermissionKeys.PlatformTenantView,
+    params: IdParams,
+    response: { 200: TenantConnectionStatusResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+    ],
+    operationId: "platform.tenants.connection.get",
+    summary: "Check a tenant runtime's connection/health via the Tenant API",
+    tags: ["Platform"],
+  },
+
+  TENANT_BRANDING_GET: {
+    method: HttpMethod.GET,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_BRANDING,
+    auth: "required",
+    permission: PermissionKeys.PlatformTenantView,
+    params: IdParams,
+    response: { 200: TenantBrandingResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+      ErrorCode.SERVICE_UNAVAILABLE,
+    ],
+    operationId: "platform.tenants.branding.get",
+    summary: "Read a tenant's persisted branding via the Tenant API",
+    tags: ["Platform"],
+  },
+
+  TENANT_BRANDING_UPDATE: {
+    method: HttpMethod.PATCH,
+    path: PLATFORM_ENDPOINTS.ROUTE_TENANT_BRANDING,
+    auth: "required",
+    permission: PermissionKeys.PlatformTenantUpdate,
+    params: IdParams,
+    body: UpdateTenantBrandingBody,
+    response: { 200: TenantBrandingResponse },
+    errors: [
+      ErrorCode.UNAUTHORIZED,
+      ErrorCode.PLATFORM_ACCESS_DENIED,
+      ErrorCode.NOT_FOUND,
+      ErrorCode.VALIDATION_ERROR,
+      ErrorCode.SERVICE_UNAVAILABLE,
+    ],
+    operationId: "platform.tenants.branding.update",
+    summary: "Update a tenant's branding through the Tenant API (partial)",
     tags: ["Platform"],
   },
 } satisfies Record<string, ApiEndpoint>;

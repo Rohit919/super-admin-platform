@@ -31,6 +31,13 @@ export const PLATFORM_ENDPOINTS = {
   TENANT_ENTITLEMENT_OVERRIDE: (id: string, key: string) =>
     `${PLATFORM_BASE}/tenants/${encodeId(id)}/entitlements/${encodeId(key)}`,
 
+  // Tenant platform connection — branding + runtime status (Phase 21).
+  // The Platform proxies these to the Tenant API over authenticated S2S.
+  TENANT_BRANDING: (id: string) =>
+    `${PLATFORM_BASE}/tenants/${encodeId(id)}/branding`,
+  TENANT_CONNECTION: (id: string) =>
+    `${PLATFORM_BASE}/tenants/${encodeId(id)}/connection`,
+
   // Tenant API credentials (client-facing builders).
   TENANT_CREDENTIALS: (tenantId: string) =>
     `${PLATFORM_BASE}/tenants/${encodeId(tenantId)}/credentials`,
@@ -44,6 +51,8 @@ export const PLATFORM_ENDPOINTS = {
   ROUTE_TENANT_OVERVIEW: `${PLATFORM_BASE}/tenants/:id/overview`,
   ROUTE_TENANT_ORGANIZATION: `${PLATFORM_BASE}/tenants/:id/organization`,
   ROUTE_TENANT_STATUS: `${PLATFORM_BASE}/tenants/:id/status`,
+  ROUTE_TENANT_BRANDING: `${PLATFORM_BASE}/tenants/:id/branding`,
+  ROUTE_TENANT_CONNECTION: `${PLATFORM_BASE}/tenants/:id/connection`,
   ROUTE_TENANT_CREDENTIALS: `${PLATFORM_BASE}/tenants/:tenantId/credentials`,
   ROUTE_TENANT_CREDENTIAL_ROTATE: `${PLATFORM_BASE}/tenants/:tenantId/credentials/:credentialId/rotate`,
   ROUTE_TENANT_CREDENTIAL_REVOKE: `${PLATFORM_BASE}/tenants/:tenantId/credentials/:credentialId/revoke`,

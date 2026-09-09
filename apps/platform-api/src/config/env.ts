@@ -54,6 +54,28 @@ export const envSchema = Type.Object({
   // Secrets provider: env (default) | aws | vault | doppler
   SECRETS_PROVIDER: Type.String({ default: "env" }),
 
+  // ── Tenant Platform connection (Phase 21) ──────────────────────────────────
+  // Outbound server-to-server connection FROM this Platform API TO a Tenant
+  // runtime's Tenant API (Fastify-Master). The Platform is the CONSUMER of the
+  // S2S secret here (it presents it), so the secret is read from env/secrets
+  // provider and NEVER stored in the DB or exposed to the browser.
+  //
+  // This reference deployment models ONE tenant runtime (single Tenant API
+  // base URL + secret). The TenantPlatformService maps a platform tenantId to
+  // this connection; a multi-runtime deployment would resolve per-tenant
+  // connections from a secrets store keyed by tenantId (documented, not faked).
+  //
+  // When TENANT_API_BASE_URL / TENANT_API_S2S_SECRET are unset, the tenant
+  // platform connection is DISABLED and branding/connection routes return
+  // SERVICE_UNAVAILABLE rather than pretending to succeed.
+  TENANT_API_BASE_URL: Type.Optional(Type.String()),
+  TENANT_API_S2S_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  // Request timeout (ms) for outbound Tenant API calls. Explicit per §35.
+  TENANT_API_TIMEOUT_MS: Type.Number({ default: 5_000 }),
+  // Allow http:// Tenant API base URLs (local dev only). Production requires
+  // https; the SSRF guard enforces the protocol allowlist.
+  TENANT_API_ALLOW_HTTP: Type.Boolean({ default: false }),
+
   // Tracing — opt-in. When enabled, spans are exported to the OTLP endpoint.
   OTEL_ENABLED: Type.Boolean({ default: false }),
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.String({
