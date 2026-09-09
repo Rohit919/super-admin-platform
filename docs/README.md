@@ -7,8 +7,25 @@ Platform.
 
 - **[GETTING_STARTED.md](./GETTING_STARTED.md)** — setup, first run, common commands
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — the Golden Orchestrator pattern
-- **[super-admin/MULTI-TENANT-ARCHITECTURE.md](./super-admin/MULTI-TENANT-ARCHITECTURE.md)** — multi-tenant model & isolation
-- **[AUTOMATIC_DASHBOARDS.md](./AUTOMATIC_DASHBOARDS.md)** — auto-generated Grafana dashboards
+- **[MULTI_TENANT_ARCHITECTURE.md](./MULTI_TENANT_ARCHITECTURE.md)** — multi-tenant model & isolation
+- **[GYM_PLATFORM_MIGRATION_PLAN.md](./GYM_PLATFORM_MIGRATION_PLAN.md)** — the migration plan of record
+
+---
+
+## Canonical architecture docs
+
+The gym-platform target documentation set:
+
+- [MULTI_TENANT_ARCHITECTURE.md](./MULTI_TENANT_ARCHITECTURE.md) — tenant model, isolation, enforcement
+- [TENANT_DATA_MODEL.md](./TENANT_DATA_MODEL.md) — database architecture & tenant-owned data
+- [RBAC.md](./RBAC.md) — roles, permissions, authorization model
+- [AUTHENTICATION_IMPLEMENTATION.md](./AUTHENTICATION_IMPLEMENTATION.md) — auth flows, tokens, sessions
+- [TENANT_BRANDING.md](./TENANT_BRANDING.md) — per-tenant branding
+- [WHITE_LABEL_ARCHITECTURE.md](./WHITE_LABEL_ARCHITECTURE.md) — white-label / mobile architecture
+
+> The detailed, code-referenced multi-tenant spec (cited by `§` numbers in
+> source comments) lives at
+> [super-admin/MULTI-TENANT-ARCHITECTURE.md](./super-admin/MULTI-TENANT-ARCHITECTURE.md).
 
 ---
 
@@ -16,18 +33,22 @@ Platform.
 
 ### Platform & multi-tenancy
 
-- [super-admin/MULTI-TENANT-ARCHITECTURE.md](./super-admin/MULTI-TENANT-ARCHITECTURE.md)
-- [TENANT-LIFECYCLE.md](./TENANT-LIFECYCLE.md), [TENANT-PROVISIONING.md](./TENANT-PROVISIONING.md), [TENANT-API-CREDENTIALS.md](./TENANT-API-CREDENTIALS.md)
-- [PLATFORM-PLANS-ENTITLEMENTS.md](./PLATFORM-PLANS-ENTITLEMENTS.md) — platform feature-gating (non-commercial)
+- [MULTI_TENANT_ARCHITECTURE.md](./MULTI_TENANT_ARCHITECTURE.md), [TENANT_DATA_MODEL.md](./TENANT_DATA_MODEL.md)
+- [PLATFORM-PLANS-ENTITLEMENTS.md](./PLATFORM-PLANS-ENTITLEMENTS.md) — platform feature-gating (non-commercial, separate from gym membership/payment)
 
 ### Auth & security
 
 - [AUTHENTICATION.md](./AUTHENTICATION.md), [AUTHENTICATION_IMPLEMENTATION.md](./AUTHENTICATION_IMPLEMENTATION.md)
+- [RBAC.md](./RBAC.md)
 - [SECURITY.md](./SECURITY.md), [AUDIT_LOGGING.md](./AUDIT_LOGGING.md), [RATE_LIMITING.md](./RATE_LIMITING.md)
 
 ### API surface
 
 - [API_ENDPOINTS.md](./API_ENDPOINTS.md), [API_CONTRACTS.md](./API_CONTRACTS.md), [API_VERSIONING.md](./API_VERSIONING.md)
+
+### Branding & white-label
+
+- [TENANT_BRANDING.md](./TENANT_BRANDING.md), [WHITE_LABEL_ARCHITECTURE.md](./WHITE_LABEL_ARCHITECTURE.md)
 
 ### Data & operations
 
