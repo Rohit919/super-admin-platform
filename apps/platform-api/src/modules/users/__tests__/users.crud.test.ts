@@ -27,6 +27,20 @@ function appWith(
   permissions: string[],
   userOverrides: Record<string, ReturnType<typeof vi.fn>> = {},
 ) {
+  // The access-token integrity check (assertTokenCurrent) queries the caller
+  // with a NARROW select of { permissionVersion, passwordChangedAt }. Handlers
+  // query users with a different/no select. We discriminate on that select so
+  // the integrity check always resolves to a valid current user while the
+  // handler's own lookups keep coming from the test's override untouched.
+  const overrideFindUnique = userOverrides.findUnique;
+  const findUnique = vi.fn(async (...a: unknown[]) => {
+    const args = a[0] as { select?: { permissionVersion?: boolean } };
+    if (args?.select?.permissionVersion) {
+      return { permissionVersion: 0, passwordChangedAt: null };
+    }
+    return overrideFindUnique ? overrideFindUnique(...a) : null;
+  });
+
   return buildTestApp({
     prisma: {
       userRole: {
@@ -38,7 +52,7 @@ function appWith(
             ),
           ),
       },
-      user: userOverrides,
+      user: { ...userOverrides, findUnique },
     },
   });
 }
