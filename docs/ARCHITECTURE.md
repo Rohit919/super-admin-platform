@@ -1,8 +1,10 @@
-# 🏗️ Architecture Guide
+# 🏗️ Architecture Guide — Gym Platform API
 
 ## Golden Orchestrator Pattern
 
-The Golden Orchestrator pattern structures complex business logic as a pipeline of single-responsibility operations, providing automatic performance tracking, error handling, and testability.
+The Golden Orchestrator pattern structures complex business logic as a pipeline of single-responsibility operations, providing automatic performance tracking, error handling, and testability. In the Gym Platform API it backs multi-step domain flows such as creating a member, provisioning a tenant, or logging a workout session.
+
+> The code below uses a generic `Order` flow purely to illustrate the pattern's mechanics (validate → process → notify). In this codebase the same shape applies to gym-domain flows — e.g. a `CreateMemberOrchestrator` with `validate → createMember → notify`.
 
 ---
 
