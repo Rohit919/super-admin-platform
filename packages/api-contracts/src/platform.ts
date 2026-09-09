@@ -1,5 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { TenantStatus } from "./tenants.js";
+import { OffsetPageMeta, PAGINATION_DEFAULTS } from "./common.js";
 
 /**
  * Platform (Super Admin) contracts — shared between the Fastify API and the
@@ -22,25 +23,219 @@ export const PlatformTenantDto = Type.Object({
 });
 export type PlatformTenantDto = Static<typeof PlatformTenantDto>;
 
-export const PlatformTenantListResponse = Type.Object({
-  success: Type.Literal(true),
-  data: Type.Array(PlatformTenantDto),
-});
-export type PlatformTenantListResponse = Static<
-  typeof PlatformTenantListResponse
->;
-
 export const PlatformTenantResponse = Type.Object({
   success: Type.Literal(true),
   data: PlatformTenantDto,
 });
 export type PlatformTenantResponse = Static<typeof PlatformTenantResponse>;
 
-/** Optional status filter for the tenant list. */
+// ── Tenant Control Center overview (platform.tenant.view) ─────────────────────
+// A deep, REAL aggregate for the Super Admin Tenant Control Center. Every field
+// is derived from existing tables (Tenant, TenantMembership → User,
+// TenantApiCredential, TenantPlan → Plan, TenantEntitlementOverride). It does
+// NOT invent usage/metering/branding/integration/provisioning data — those are
+// documented capability gaps (docs/PHASE-19-TENANT-CONTROL-CENTER.md), not faked
+// here. Loading this is a separate call from the lean tenant list so the list
+// stays fast; the detail page fetches it once.
+
+/** The tenant's primary administrator (oldest ACTIVE membership), if any. */
+export const TenantPrimaryAdminDto = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  email: Type.String(),
+  // ISO timestamp the admin joined the tenant (membership.createdAt).
+  since: Type.String(),
+});
+export type TenantPrimaryAdminDto = Static<typeof TenantPrimaryAdminDto>;
+
+/** Real member counts by membership status. */
+export const TenantMemberBreakdown = Type.Object({
+  total: Type.Integer({ minimum: 0 }),
+  active: Type.Integer({ minimum: 0 }),
+  invited: Type.Integer({ minimum: 0 }),
+  suspended: Type.Integer({ minimum: 0 }),
+});
+export type TenantMemberBreakdown = Static<typeof TenantMemberBreakdown>;
+
+/**
+ * Real credential health. `expired` counts ACTIVE credentials whose expiresAt is
+ * in the past (an operational signal, computed server-side against `now`).
+ */
+export const TenantCredentialBreakdown = Type.Object({
+  total: Type.Integer({ minimum: 0 }),
+  active: Type.Integer({ minimum: 0 }),
+  revoked: Type.Integer({ minimum: 0 }),
+  expired: Type.Integer({ minimum: 0 }),
+});
+export type TenantCredentialBreakdown = Static<
+  typeof TenantCredentialBreakdown
+>;
+
+/** The tenant's plan summary + entitlement/override counts (real). */
+export const TenantPlanSummary = Type.Object({
+  key: Type.String(),
+  name: Type.String(),
+  assignedAt: Type.String(),
+  // Number of entitlements resolved for the tenant (plan + overrides).
+  entitlementCount: Type.Integer({ minimum: 0 }),
+  // Number of per-tenant overrides in effect.
+  overrideCount: Type.Integer({ minimum: 0 }),
+});
+export type TenantPlanSummary = Static<typeof TenantPlanSummary>;
+
+/**
+ * Deep tenant overview aggregate for the Control Center. All fields are REAL.
+ * `plan` and `primaryAdmin` are null when the tenant has none.
+ */
+export const PlatformTenantOverviewDto = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  slug: Type.String(),
+  status: TenantStatus,
+  createdAt: Type.String(),
+  updatedAt: Type.String(),
+  primaryAdmin: Type.Union([TenantPrimaryAdminDto, Type.Null()]),
+  members: TenantMemberBreakdown,
+  credentials: TenantCredentialBreakdown,
+  plan: Type.Union([TenantPlanSummary, Type.Null()]),
+});
+export type PlatformTenantOverviewDto = Static<
+  typeof PlatformTenantOverviewDto
+>;
+
+export const PlatformTenantOverviewResponse = Type.Object({
+  success: Type.Literal(true),
+  data: PlatformTenantOverviewDto,
+});
+export type PlatformTenantOverviewResponse = Static<
+  typeof PlatformTenantOverviewResponse
+>;
+
+/**
+ * Tenant list query. `status` filters by lifecycle state; `q` is a
+ * case-insensitive substring match against tenant name OR slug; `page`/
+ * `pageSize` drive backend (authoritative) offset pagination. All optional —
+ * an empty query returns the first page of all tenants (back-compatible).
+ */
 export const PlatformTenantListQuery = Type.Object({
   status: Type.Optional(TenantStatus),
+  q: Type.Optional(Type.String({ maxLength: 120 })),
+  page: Type.Optional(
+    Type.Integer({ minimum: 1, default: PAGINATION_DEFAULTS.page }),
+  ),
+  pageSize: Type.Optional(
+    Type.Integer({
+      minimum: PAGINATION_DEFAULTS.minPageSize,
+      maximum: PAGINATION_DEFAULTS.maxPageSize,
+      default: PAGINATION_DEFAULTS.pageSize,
+    }),
+  ),
 });
 export type PlatformTenantListQuery = Static<typeof PlatformTenantListQuery>;
+
+/**
+ * Paginated tenant list. Keeps the legacy `{ success, data }` envelope for
+ * consistency with the other platform collections, and adds offset pagination
+ * `meta` so the client can render a pager. Backend pagination is authoritative
+ * (no client-side loading of the entire population).
+ */
+export const PlatformTenantPageResponse = Type.Object({
+  success: Type.Literal(true),
+  data: Type.Array(PlatformTenantDto),
+  meta: OffsetPageMeta,
+});
+export type PlatformTenantPageResponse = Static<
+  typeof PlatformTenantPageResponse
+>;
+
+// ── Tenant metadata edit (platform.tenant.update) ─────────────────────────────
+// Edit platform-level tenant METADATA only. The slug is the tenant's stable,
+// externally-referenced identity and is intentionally NOT editable here to avoid
+// breaking existing references (MULTI-TENANT-ARCHITECTURE §133). Lifecycle status
+// is changed via the dedicated status endpoint, not this one.
+export const UpdateTenantBody = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 120 }),
+});
+export type UpdateTenantBody = Static<typeof UpdateTenantBody>;
+
+// ── Tenant organization profile (Phase 20) ───────────────────────────────────
+// Platform-level tenant METADATA: organization identity, registered/billing
+// address, and a business contact. Every field is nullable — a tenant may have
+// none set. This is NOT tenant operational data (no logistics/warehouse/delivery
+// locations). Read is gated by platform.tenant.view; edit by platform.tenant.update.
+// The canonical id and stable slug are NOT part of this profile (identity is
+// immutable / edited elsewhere), so they cannot be changed via this surface.
+export const TenantOrganizationDto = Type.Object({
+  // Echoed for context; not editable through the organization endpoint.
+  id: Type.String(),
+  name: Type.String(),
+  slug: Type.String(),
+
+  // Organization identity.
+  legalName: Type.Union([Type.String(), Type.Null()]),
+  website: Type.Union([Type.String(), Type.Null()]),
+  industry: Type.Union([Type.String(), Type.Null()]),
+  description: Type.Union([Type.String(), Type.Null()]),
+  timeZone: Type.Union([Type.String(), Type.Null()]),
+  locale: Type.Union([Type.String(), Type.Null()]),
+
+  // Registered / billing address (NOT an operational location).
+  addressLine1: Type.Union([Type.String(), Type.Null()]),
+  addressLine2: Type.Union([Type.String(), Type.Null()]),
+  city: Type.Union([Type.String(), Type.Null()]),
+  region: Type.Union([Type.String(), Type.Null()]),
+  postalCode: Type.Union([Type.String(), Type.Null()]),
+  country: Type.Union([Type.String(), Type.Null()]),
+
+  // Business contact (distinct from the tenant's platform admin identity).
+  contactName: Type.Union([Type.String(), Type.Null()]),
+  contactEmail: Type.Union([Type.String(), Type.Null()]),
+  contactPhone: Type.Union([Type.String(), Type.Null()]),
+});
+export type TenantOrganizationDto = Static<typeof TenantOrganizationDto>;
+
+export const TenantOrganizationResponse = Type.Object({
+  success: Type.Literal(true),
+  data: TenantOrganizationDto,
+});
+export type TenantOrganizationResponse = Static<
+  typeof TenantOrganizationResponse
+>;
+
+/**
+ * Update the tenant organization profile (platform.tenant.update). Every field
+ * is OPTIONAL — only provided keys are updated (partial update). A key set to an
+ * empty string is treated as "clear" (stored as NULL); an omitted key is left
+ * unchanged. `website` and `country` are format-constrained so a malformed value
+ * cannot be persisted. No identity fields (id/slug/name) are editable here — the
+ * display name has its own dedicated endpoint (`PATCH /tenants/:id`).
+ */
+export const UpdateTenantOrganizationBody = Type.Object({
+  legalName: Type.Optional(Type.String({ maxLength: 200 })),
+  // Permissive but bounded; the service further validates it is http(s) when set.
+  website: Type.Optional(Type.String({ maxLength: 255 })),
+  industry: Type.Optional(Type.String({ maxLength: 120 })),
+  description: Type.Optional(Type.String({ maxLength: 500 })),
+  // IANA tz id / BCP-47 locale — bounded strings; the client offers safe pickers.
+  timeZone: Type.Optional(Type.String({ maxLength: 64 })),
+  locale: Type.Optional(Type.String({ maxLength: 35 })),
+
+  addressLine1: Type.Optional(Type.String({ maxLength: 200 })),
+  addressLine2: Type.Optional(Type.String({ maxLength: 200 })),
+  city: Type.Optional(Type.String({ maxLength: 120 })),
+  region: Type.Optional(Type.String({ maxLength: 120 })),
+  postalCode: Type.Optional(Type.String({ maxLength: 32 })),
+  // ISO-3166 alpha-2 (2 letters) or empty to clear.
+  country: Type.Optional(Type.String({ maxLength: 2 })),
+
+  contactName: Type.Optional(Type.String({ maxLength: 120 })),
+  // Bounded; the service validates it is a well-formed email when non-empty.
+  contactEmail: Type.Optional(Type.String({ maxLength: 255 })),
+  contactPhone: Type.Optional(Type.String({ maxLength: 40 })),
+});
+export type UpdateTenantOrganizationBody = Static<
+  typeof UpdateTenantOrganizationBody
+>;
 
 // ── Tenant provisioning ──────────────────────────────────────────────────────
 // One controlled workflow: create the tenant + its first admin user +

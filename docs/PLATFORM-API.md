@@ -58,14 +58,15 @@ route.
 
 ## 3. Implemented endpoints
 
-| Method | Path                                  | Permission                | Success | Notes                                                                                                          |
-| ------ | ------------------------------------- | ------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/platform/dashboard`          | `platform.dashboard.view` | 200     | Tenant + user counts (total/active/trial/suspended/archived/users).                                            |
-| GET    | `/api/v1/platform/tenants`            | `platform.tenant.view`    | 200     | Optional `?status=TRIAL\|ACTIVE\|SUSPENDED\|ARCHIVED`.                                                         |
-| POST   | `/api/v1/platform/tenants`            | `platform.tenant.create`  | 201     | Provisions tenant + admin user + membership + default tenant role (one transaction).                           |
-| GET    | `/api/v1/platform/tenants/:id`        | `platform.tenant.view`    | 200     | Single tenant with member count.                                                                               |
-| PATCH  | `/api/v1/platform/tenants/:id/status` | `platform.tenant.suspend` | 200     | suspend/reactivate. Transition to `ARCHIVED` additionally requires `platform.tenant.archive` (checked inline). |
-| GET    | `/api/v1/platform/users`              | `platform.user.view`      | 200     | Users holding a `PlatformMembership`, with platform roles + membership status.                                 |
+| Method | Path                                  | Permission                | Success | Notes                                                                                                                                                            |
+| ------ | ------------------------------------- | ------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/platform/dashboard`          | `platform.dashboard.view` | 200     | Tenant + user counts (total/active/trial/suspended/archived/users).                                                                                              |
+| GET    | `/api/v1/platform/tenants`            | `platform.tenant.view`    | 200     | Paginated. Optional `?status=TRIAL\|ACTIVE\|SUSPENDED\|ARCHIVED`, `?q=` (name/slug search), `?page=`/`?pageSize=`. Returns `{ data, meta }` (offset pagination). |
+| POST   | `/api/v1/platform/tenants`            | `platform.tenant.create`  | 201     | Provisions tenant + admin user + membership + default tenant role (one transaction).                                                                             |
+| GET    | `/api/v1/platform/tenants/:id`        | `platform.tenant.view`    | 200     | Single tenant with member count.                                                                                                                                 |
+| PATCH  | `/api/v1/platform/tenants/:id`        | `platform.tenant.update`  | 200     | Update platform metadata (`{ name }`). `slug` is immutable. Audited `TENANT_UPDATED`.                                                                            |
+| PATCH  | `/api/v1/platform/tenants/:id/status` | `platform.tenant.suspend` | 200     | suspend/reactivate. Transition to `ARCHIVED` additionally requires `platform.tenant.archive` (checked inline).                                                   |
+| GET    | `/api/v1/platform/users`              | `platform.user.view`      | 200     | Users holding a `PlatformMembership`, with platform roles + membership status.                                                                                   |
 
 ### 3.1 Response envelope
 

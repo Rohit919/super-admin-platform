@@ -553,6 +553,7 @@ The platform route enforcement map should follow this model:
 | `GET /api/v1/platform/tenants`                                       | `platform.tenant.view`       |
 | `POST /api/v1/platform/tenants`                                      | `platform.tenant.create`     |
 | `GET /api/v1/platform/tenants/:id`                                   | `platform.tenant.view`       |
+| `PATCH /api/v1/platform/tenants/:id`                                 | `platform.tenant.update`     |
 | `PATCH /api/v1/platform/tenants/:id/status`                          | `platform.tenant.suspend`    |
 | `GET /api/v1/platform/users`                                         | `platform.user.view`         |
 | `GET /api/v1/platform/tenants/:id/credentials`                       | `platform.credential.read`   |

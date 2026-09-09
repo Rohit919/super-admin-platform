@@ -12,6 +12,10 @@ export const PLATFORM_ENDPOINTS = {
 
   TENANTS: `${PLATFORM_BASE}/tenants`,
   TENANT_BY_ID: (id: string) => `${PLATFORM_BASE}/tenants/${encodeId(id)}`,
+  TENANT_OVERVIEW: (id: string) =>
+    `${PLATFORM_BASE}/tenants/${encodeId(id)}/overview`,
+  TENANT_ORGANIZATION: (id: string) =>
+    `${PLATFORM_BASE}/tenants/${encodeId(id)}/organization`,
   TENANT_STATUS: (id: string) =>
     `${PLATFORM_BASE}/tenants/${encodeId(id)}/status`,
 
@@ -37,6 +41,8 @@ export const PLATFORM_ENDPOINTS = {
 
   // Fastify route templates (relative registration handled in the module).
   ROUTE_TENANT_BY_ID: `${PLATFORM_BASE}/tenants/:id`,
+  ROUTE_TENANT_OVERVIEW: `${PLATFORM_BASE}/tenants/:id/overview`,
+  ROUTE_TENANT_ORGANIZATION: `${PLATFORM_BASE}/tenants/:id/organization`,
   ROUTE_TENANT_STATUS: `${PLATFORM_BASE}/tenants/:id/status`,
   ROUTE_TENANT_CREDENTIALS: `${PLATFORM_BASE}/tenants/:tenantId/credentials`,
   ROUTE_TENANT_CREDENTIAL_ROTATE: `${PLATFORM_BASE}/tenants/:tenantId/credentials/:credentialId/rotate`,

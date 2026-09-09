@@ -415,3 +415,587 @@ describe("Platform tenant status changes", () => {
     await app2.close();
   });
 });
+
+describe("Platform tenant list (pagination + search)", () => {
+  const listApp = (rows: unknown[], total: number, findMany = vi.fn()) =>
+    buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformTenantView]),
+            ),
+        },
+        tenant: {
+          count: vi.fn().mockResolvedValue(total),
+          findMany: findMany.mockResolvedValue(rows),
+        },
+      },
+    });
+
+  const tenantRow = (over: Record<string, unknown> = {}) => ({
+    id: "t1",
+    name: "Acme",
+    slug: "acme",
+    status: "ACTIVE",
+    createdAt: new Date("2026-01-01"),
+    updatedAt: new Date("2026-01-01"),
+    _count: { memberships: 2 },
+    ...over,
+  });
+
+  it("returns a paginated envelope with offset meta (data + meta)", async () => {
+    const app = await listApp([tenantRow()], 1);
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data[0]).toMatchObject({ id: "t1", memberCount: 2 });
+    expect(body.meta).toMatchObject({
+      page: 1,
+      pageSize: 25,
+      total: 1,
+      totalPages: 1,
+    });
+    await app.close();
+  });
+
+  it("passes a case-insensitive name/slug search into the query", async () => {
+    const findMany = vi.fn();
+    const app = await listApp([], 0, findMany);
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants?q=acme`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { name: { contains: "acme", mode: "insensitive" } },
+            { slug: { contains: "acme", mode: "insensitive" } },
+          ],
+        }),
+      }),
+    );
+    await app.close();
+  });
+
+  it("applies page/pageSize to skip/take", async () => {
+    const findMany = vi.fn();
+    const app = await listApp([], 50, findMany);
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants?page=2&pageSize=10`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 10, take: 10 }),
+    );
+    expect(res.json().meta).toMatchObject({
+      page: 2,
+      pageSize: 10,
+      total: 50,
+      totalPages: 5,
+    });
+    await app.close();
+  });
+});
+
+describe("Platform tenant overview (Control Center aggregate)", () => {
+  const overviewApp = (extra: Record<string, unknown> = {}) =>
+    buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformTenantView]),
+            ),
+        },
+        ...extra,
+      },
+    });
+
+  it("aggregates real member, credential and plan data for a tenant (200)", async () => {
+    // tenantMembership.count is called 4x (total/active/invited/suspended),
+    // tenantApiCredential.count 4x (total/active/revoked/expired).
+    const membershipCount = vi
+      .fn()
+      .mockResolvedValueOnce(3) // total
+      .mockResolvedValueOnce(2) // active
+      .mockResolvedValueOnce(1) // invited
+      .mockResolvedValueOnce(0); // suspended
+    const credentialCount = vi
+      .fn()
+      .mockResolvedValueOnce(4) // total
+      .mockResolvedValueOnce(2) // active
+      .mockResolvedValueOnce(2) // revoked
+      .mockResolvedValueOnce(1); // expired (active + past expiry)
+
+    const app = await overviewApp({
+      tenant: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "t1",
+          name: "Acme",
+          slug: "acme",
+          status: "ACTIVE",
+          createdAt: new Date("2026-01-01"),
+          updatedAt: new Date("2026-01-02"),
+        }),
+      },
+      tenantMembership: {
+        count: membershipCount,
+        findFirst: vi.fn().mockResolvedValue({
+          createdAt: new Date("2026-01-01"),
+          user: { id: "u1", name: "Ada Admin", email: "ada@acme.io" },
+        }),
+      },
+      tenantApiCredential: { count: credentialCount },
+      tenantPlan: {
+        findUnique: vi.fn().mockResolvedValue({
+          assignedAt: new Date("2026-01-01"),
+          plan: {
+            key: "growth",
+            name: "Growth",
+            _count: { entitlements: 5 },
+          },
+        }),
+      },
+      tenantEntitlementOverride: {
+        count: vi.fn().mockResolvedValue(1),
+        // The union-count path queries overrides by key too.
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ entitlement: { key: "max_users" } }]),
+      },
+      planEntitlement: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { entitlement: { key: "max_users" } },
+            { entitlement: { key: "api_access" } },
+          ]),
+      },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/t1/overview`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    expect(data).toMatchObject({
+      id: "t1",
+      slug: "acme",
+      status: "ACTIVE",
+      members: { total: 3, active: 2, invited: 1, suspended: 0 },
+      credentials: { total: 4, active: 2, revoked: 2, expired: 1 },
+    });
+    expect(data.primaryAdmin).toMatchObject({
+      name: "Ada Admin",
+      email: "ada@acme.io",
+    });
+    expect(data.plan).toMatchObject({ key: "growth", name: "Growth" });
+    await app.close();
+  });
+
+  it("returns 404 for a non-existent tenant overview", async () => {
+    const app = await overviewApp({
+      tenant: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/missing/overview`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("denies overview WITHOUT platform.tenant.view (403)", async () => {
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/t1/overview`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLATFORM_ACCESS_DENIED");
+    await app.close();
+  });
+});
+
+describe("Platform tenant metadata update", () => {
+  const updateApp = (
+    keys: string[],
+    tenantFindUnique = vi.fn(),
+    tenantUpdate = vi.fn(),
+  ) =>
+    buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi.fn().mockResolvedValue(rolesWithPerms(keys)),
+        },
+        tenant: {
+          findUnique: tenantFindUnique,
+          update: tenantUpdate,
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      },
+    });
+
+  it("updates the tenant name with platform.tenant.update (200) and audits it", async () => {
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const findUnique = vi
+      .fn()
+      // 1st: existence check (id + current name); 2nd: getTenant() after update.
+      .mockResolvedValueOnce({ id: "t1", name: "Old Name" })
+      .mockResolvedValue({
+        id: "t1",
+        name: "New Name",
+        slug: "acme",
+        status: "ACTIVE",
+        createdAt: new Date("2026-01-01"),
+        updatedAt: new Date("2026-01-02"),
+        _count: { memberships: 1 },
+      });
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformTenantUpdate]),
+            ),
+        },
+        tenant: {
+          findUnique,
+          update: vi.fn().mockResolvedValue({}),
+        },
+        auditLog: { create: auditCreate },
+      },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { name: "New Name" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ id: "t1", name: "New Name" });
+    // Audited as TENANT_UPDATED with a from/to name (no secrets).
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "TENANT_UPDATED" }),
+      }),
+    );
+    await app.close();
+  });
+
+  it("denies tenant update WITHOUT platform.tenant.update (403)", async () => {
+    // Has an unrelated platform permission but not update.
+    const app = await updateApp([PermissionKeys.PlatformTenantView]);
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { name: "New Name" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLATFORM_ACCESS_DENIED");
+    await app.close();
+  });
+
+  it("returns 404 when updating a non-existent tenant", async () => {
+    const app = await updateApp(
+      [PermissionKeys.PlatformTenantUpdate],
+      vi.fn().mockResolvedValue(null), // no such tenant
+      vi.fn(),
+    );
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/missing`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { name: "New Name" },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("Platform tenant organization profile (Phase 20)", () => {
+  const ORG_ROW = {
+    id: "t1",
+    name: "Acme",
+    slug: "acme",
+    legalName: "Acme Logistics, Inc.",
+    website: "https://acme.io",
+    industry: "Logistics",
+    description: null,
+    timeZone: "Africa/Lagos",
+    locale: "en-US",
+    addressLine1: "1 Market St",
+    addressLine2: null,
+    city: "Lagos",
+    region: "LA",
+    postalCode: "100001",
+    country: "NG",
+    contactName: "Ada Ops",
+    contactEmail: "ops@acme.io",
+    contactPhone: "+234 800 0000",
+  };
+
+  /** Build an app with org read/write mocks and the given permission keys. */
+  const orgApp = (
+    keys: string[],
+    tenantMocks: Record<string, ReturnType<typeof vi.fn>> = {},
+  ) =>
+    buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: { findMany: vi.fn().mockResolvedValue(rolesWithPerms(keys)) },
+        tenant: tenantMocks,
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      },
+    });
+
+  it("returns the organization profile with platform.tenant.view (200)", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantView], {
+      findUnique: vi.fn().mockResolvedValue(ORG_ROW),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({
+      id: "t1",
+      slug: "acme",
+      legalName: "Acme Logistics, Inc.",
+      website: "https://acme.io",
+      country: "NG",
+      contactEmail: "ops@acme.io",
+    });
+    await app.close();
+  });
+
+  it("returns 404 for a non-existent tenant organization", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantView], {
+      findUnique: vi.fn().mockResolvedValue(null),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/missing/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("denies reading the organization WITHOUT platform.tenant.view (403)", async () => {
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLATFORM_ACCESS_DENIED");
+    await app.close();
+  });
+
+  it("updates organization fields with platform.tenant.update (200) and audits changed keys", async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const findUnique = vi
+      .fn()
+      // 1st: existence check; 2nd: getTenantOrganization() after update.
+      .mockResolvedValueOnce({ id: "t1" })
+      .mockResolvedValue({ ...ORG_ROW, legalName: "Acme Global Ltd" });
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformTenantUpdate]),
+            ),
+        },
+        tenant: { findUnique, update },
+        auditLog: { create: auditCreate },
+      },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { legalName: "Acme Global Ltd", industry: "Freight" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // Only the provided keys are written.
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "t1" },
+        data: { legalName: "Acme Global Ltd", industry: "Freight" },
+      }),
+    );
+    // Audited as TENANT_ORGANIZATION_UPDATED with the changed key names only.
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "TENANT_ORGANIZATION_UPDATED",
+          metadata: expect.objectContaining({
+            changed: expect.arrayContaining(["legalName", "industry"]),
+          }),
+        }),
+      }),
+    );
+    await app.close();
+  });
+
+  it("clears a field when an empty string is provided (stored as null)", async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "t1" })
+      .mockResolvedValue({ ...ORG_ROW, website: null });
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformTenantUpdate]),
+            ),
+        },
+        tenant: { findUnique, update },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { website: "" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { website: null } }),
+    );
+    await app.close();
+  });
+
+  it("rejects a malformed website (400 VALIDATION_ERROR)", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantUpdate], {
+      findUnique: vi.fn().mockResolvedValue({ id: "t1" }),
+      update: vi.fn(),
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { website: "notaurl" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    await app.close();
+  });
+
+  it("rejects a malformed contact email (400 VALIDATION_ERROR)", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantUpdate], {
+      findUnique: vi.fn().mockResolvedValue({ id: "t1" }),
+      update: vi.fn(),
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { contactEmail: "nope" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    await app.close();
+  });
+
+  it("denies organization update WITHOUT platform.tenant.update (403)", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantView], {
+      findUnique: vi.fn().mockResolvedValue({ id: "t1" }),
+      update: vi.fn(),
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/t1/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { legalName: "X" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLATFORM_ACCESS_DENIED");
+    await app.close();
+  });
+
+  it("returns 404 when updating a non-existent tenant organization", async () => {
+    const app = await orgApp([PermissionKeys.PlatformTenantUpdate], {
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn(),
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `${BASE}/tenants/missing/organization`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { legalName: "X" },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});

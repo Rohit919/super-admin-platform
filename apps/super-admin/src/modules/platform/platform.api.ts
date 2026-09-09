@@ -3,12 +3,19 @@ import {
   API_CONTRACTS,
   type PlatformDashboardResponse,
   type PlatformDashboardStats,
-  type PlatformTenantListResponse,
+  type PlatformTenantPageResponse,
+  type PlatformTenantListQuery,
   type PlatformTenantResponse,
   type PlatformTenantDto,
+  type PlatformTenantOverviewResponse,
+  type PlatformTenantOverviewDto,
+  type TenantOrganizationResponse,
+  type TenantOrganizationDto,
+  type UpdateTenantOrganizationBody,
   type PlatformUserListResponse,
   type PlatformUserDto,
   type CreateTenantBody,
+  type UpdateTenantBody,
   type TenantStatus,
   type TenantApiCredentialListResponse,
   type TenantApiCredentialDto,
@@ -29,6 +36,9 @@ export type CreatedCredential = CreatedTenantApiCredentialResponse["data"];
 /** A tenant's resolved plan + effective entitlements. */
 export type TenantEntitlements = TenantEntitlementsResponse["data"];
 
+/** A page of tenants + offset pagination metadata. */
+export type TenantPage = Pick<PlatformTenantPageResponse, "data" | "meta">;
+
 /**
  * Platform (Super Admin) API service — contract-driven calls to /platform/*.
  * Every call is gated server-side by an ACTIVE PlatformMembership + platform.*
@@ -42,14 +52,18 @@ export const platformApi = {
     return res.data;
   },
 
-  tenants: async (status?: TenantStatus): Promise<PlatformTenantDto[]> => {
-    const res = await apiClient.request<PlatformTenantListResponse>(
+  /**
+   * List tenants with backend-authoritative pagination + optional status
+   * filter and name/slug search. Returns the page plus pagination meta.
+   */
+  tenants: async (query: PlatformTenantListQuery = {}): Promise<TenantPage> => {
+    const res = await apiClient.request<PlatformTenantPageResponse>(
       API_CONTRACTS.PLATFORM.TENANTS_LIST,
       {
-        query: status ? { status } : {},
+        query: query as Record<string, string | number | undefined>,
       },
     );
-    return res.data;
+    return { data: res.data, meta: res.meta };
   },
 
   tenant: async (id: string): Promise<PlatformTenantDto> => {
@@ -62,10 +76,66 @@ export const platformApi = {
     return res.data;
   },
 
+  /**
+   * Deep tenant overview aggregate for the Control Center (identity, primary
+   * admin, member/credential breakdowns, plan summary). All real data.
+   */
+  tenantOverview: async (id: string): Promise<PlatformTenantOverviewDto> => {
+    const res = await apiClient.request<PlatformTenantOverviewResponse>(
+      API_CONTRACTS.PLATFORM.TENANT_OVERVIEW,
+      {
+        params: { id },
+      },
+    );
+    return res.data;
+  },
+
+  /**
+   * Tenant organization profile (identity echo + organization/address/contact).
+   * Real, nullable platform metadata. Requires platform.tenant.view.
+   */
+  tenantOrganization: async (id: string): Promise<TenantOrganizationDto> => {
+    const res = await apiClient.request<TenantOrganizationResponse>(
+      API_CONTRACTS.PLATFORM.TENANT_ORGANIZATION_GET,
+      { params: { id } },
+    );
+    return res.data;
+  },
+
+  /**
+   * Partial update of the organization profile. Only provided keys change; an
+   * empty string clears a field. Requires platform.tenant.update.
+   */
+  updateTenantOrganization: async (
+    id: string,
+    body: UpdateTenantOrganizationBody,
+  ): Promise<TenantOrganizationDto> => {
+    const res = await apiClient.request<TenantOrganizationResponse>(
+      API_CONTRACTS.PLATFORM.TENANT_ORGANIZATION_UPDATE,
+      { params: { id }, body },
+    );
+    return res.data;
+  },
+
   createTenant: async (body: CreateTenantBody): Promise<PlatformTenantDto> => {
     const res = await apiClient.request<PlatformTenantResponse>(
       API_CONTRACTS.PLATFORM.TENANT_CREATE,
       {
+        body,
+      },
+    );
+    return res.data;
+  },
+
+  /** Update platform-level tenant metadata (name). Requires platform.tenant.update. */
+  updateTenant: async (
+    id: string,
+    body: UpdateTenantBody,
+  ): Promise<PlatformTenantDto> => {
+    const res = await apiClient.request<PlatformTenantResponse>(
+      API_CONTRACTS.PLATFORM.TENANT_UPDATE,
+      {
+        params: { id },
         body,
       },
     );
@@ -173,6 +243,23 @@ export const platformApi = {
     const res = await apiClient.request<TenantEntitlementsResponse>(
       API_CONTRACTS.PLANS.TENANT_PLAN_ASSIGN,
       { params: { id: tenantId }, body: { planKey } },
+    );
+    return res.data;
+  },
+
+  /**
+   * Set (string value) or clear (null) a per-tenant entitlement override.
+   * Requires platform.entitlement.manage. Returns the tenant's resolved
+   * entitlements after the change.
+   */
+  setTenantEntitlementOverride: async (
+    tenantId: string,
+    entitlementKey: string,
+    value: string | null,
+  ): Promise<TenantEntitlements> => {
+    const res = await apiClient.request<TenantEntitlementsResponse>(
+      API_CONTRACTS.PLANS.TENANT_ENTITLEMENT_OVERRIDE_SET,
+      { params: { id: tenantId, key: entitlementKey }, body: { value } },
     );
     return res.data;
   },

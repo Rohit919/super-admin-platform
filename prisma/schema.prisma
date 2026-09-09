@@ -34,6 +34,34 @@ model Tenant {
   // any future custom domain (see MULTI-TENANT-ARCHITECTURE §133).
   slug      String       @unique
   status    TenantStatus @default(TRIAL)
+
+  // ─── Organization profile (Phase 20) ──────────────────────────────────────
+  // Platform-level tenant METADATA managed by Super Admin. All nullable and
+  // back-compatible: a tenant may exist with none of these set. These describe
+  // the customer ORGANIZATION (identity/contact/registered address) — they are
+  // NOT tenant operational data (no logistics/warehouse/delivery locations).
+  // Editing is gated by platform.tenant.update and audited.
+  legalName    String? // registered legal company name (distinct from display `name`)
+  website      String? // https URL (validated at the contract boundary)
+  industry     String? // free-text industry/sector label
+  description  String? // short organization description
+  timeZone     String? // IANA tz identifier (e.g. "Africa/Lagos")
+  locale       String? // BCP-47 locale tag (e.g. "en-US")
+
+  // Registered / billing address (NOT an operational/warehouse address).
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  region       String? // state / province
+  postalCode   String?
+  country      String? // ISO-3166 alpha-2 country code
+
+  // Business contact — the organization's point of contact at the platform
+  // level. Distinct from the tenant's platform admin identity (a `User`).
+  contactName  String?
+  contactEmail String? // validated email at the contract boundary
+  contactPhone String?
+
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 

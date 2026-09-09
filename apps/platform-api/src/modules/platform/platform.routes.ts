@@ -3,6 +3,8 @@ import {
   PLATFORM_CONTRACTS,
   PermissionKeys,
   type CreateTenantBody,
+  type UpdateTenantBody,
+  type UpdateTenantOrganizationBody,
   type UpdateTenantStatusBody,
   type PlatformTenantListQuery,
   type PlatformAuditLogQuery,
@@ -63,11 +65,10 @@ const platformRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { status } = request.query as PlatformTenantListQuery;
-      const data = await service.listTenants(
-        status as TenantStatus | undefined,
+      const { data, meta } = await service.listTenants(
+        request.query as PlatformTenantListQuery,
       );
-      return reply.send({ success: true, data });
+      return reply.send({ success: true, data, meta });
     },
   );
 
@@ -117,6 +118,120 @@ const platformRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const data = await service.getTenant(id);
+      return reply.send({ success: true, data });
+    },
+  );
+
+  // ── GET /platform/tenants/:id/overview ───────────────────────────────────────
+  // Deep, real tenant aggregate for the Control Center (identity, primary admin,
+  // member + credential breakdowns, plan summary). Separate from the lean list.
+  fastify.get(
+    "/tenants/:id/overview",
+    {
+      preValidation: [fastify.authenticate],
+      preHandler: [
+        requirePlatformPermission(PermissionKeys.PlatformTenantView),
+      ],
+      schema: {
+        summary: PLATFORM_CONTRACTS.TENANT_OVERVIEW.summary,
+        tags: PLATFORM_CONTRACTS.TENANT_OVERVIEW.tags,
+        operationId: PLATFORM_CONTRACTS.TENANT_OVERVIEW.operationId,
+        security: [{ bearerAuth: [] }],
+        params: PLATFORM_CONTRACTS.TENANT_OVERVIEW.params,
+        response: PLATFORM_CONTRACTS.TENANT_OVERVIEW.response,
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const data = await service.getTenantOverview(id);
+      return reply.send({ success: true, data });
+    },
+  );
+
+  // ── GET /platform/tenants/:id/organization ───────────────────────────────────
+  // Organization profile (identity echo + org/address/contact). Real, nullable
+  // metadata; no operational/logistics data. Requires platform.tenant.view.
+  fastify.get(
+    "/tenants/:id/organization",
+    {
+      preValidation: [fastify.authenticate],
+      preHandler: [
+        requirePlatformPermission(PermissionKeys.PlatformTenantView),
+      ],
+      schema: {
+        summary: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_GET.summary,
+        tags: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_GET.tags,
+        operationId: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_GET.operationId,
+        security: [{ bearerAuth: [] }],
+        params: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_GET.params,
+        response: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_GET.response,
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const data = await service.getTenantOrganization(id);
+      return reply.send({ success: true, data });
+    },
+  );
+
+  // ── PATCH /platform/tenants/:id/organization ─────────────────────────────────
+  // Partial update of the organization profile. Requires platform.tenant.update.
+  // Audited as TENANT_ORGANIZATION_UPDATED (records changed field names only).
+  fastify.patch(
+    "/tenants/:id/organization",
+    {
+      preValidation: [fastify.authenticate],
+      preHandler: [
+        requirePlatformPermission(PermissionKeys.PlatformTenantUpdate),
+      ],
+      schema: {
+        summary: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.summary,
+        tags: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.tags,
+        operationId: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.operationId,
+        security: [{ bearerAuth: [] }],
+        params: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.params,
+        body: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.body,
+        response: PLATFORM_CONTRACTS.TENANT_ORGANIZATION_UPDATE.response,
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const data = await service.updateTenantOrganization(
+        id,
+        request.body as UpdateTenantOrganizationBody,
+        AuditService.contextFrom(request),
+      );
+      return reply.send({ success: true, data });
+    },
+  );
+
+  // ── PATCH /platform/tenants/:id (metadata) ───────────────────────────────────
+  // Edit platform-level tenant metadata (name). Distinct from the status route:
+  // lifecycle changes are gated separately. Requires platform.tenant.update.
+  fastify.patch(
+    "/tenants/:id",
+    {
+      preValidation: [fastify.authenticate],
+      preHandler: [
+        requirePlatformPermission(PermissionKeys.PlatformTenantUpdate),
+      ],
+      schema: {
+        summary: PLATFORM_CONTRACTS.TENANT_UPDATE.summary,
+        tags: PLATFORM_CONTRACTS.TENANT_UPDATE.tags,
+        operationId: PLATFORM_CONTRACTS.TENANT_UPDATE.operationId,
+        security: [{ bearerAuth: [] }],
+        params: PLATFORM_CONTRACTS.TENANT_UPDATE.params,
+        body: PLATFORM_CONTRACTS.TENANT_UPDATE.body,
+        response: PLATFORM_CONTRACTS.TENANT_UPDATE.response,
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const data = await service.updateTenant(
+        id,
+        request.body as UpdateTenantBody,
+        AuditService.contextFrom(request),
+      );
       return reply.send({ success: true, data });
     },
   );

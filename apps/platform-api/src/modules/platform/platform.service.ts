@@ -1,15 +1,26 @@
-import type { PrismaClient, TenantStatus } from "@prisma/client";
+import type { Prisma, PrismaClient, TenantStatus } from "@prisma/client";
 import {
   TENANT_PERMISSION_KEYS,
   SystemRoles,
+  PAGINATION_DEFAULTS,
   type CreateTenantBody,
+  type UpdateTenantBody,
+  type UpdateTenantOrganizationBody,
+  type TenantOrganizationDto,
   type PlatformTenantDto,
+  type PlatformTenantOverviewDto,
+  type PlatformTenantListQuery,
+  type PlatformTenantPageResponse,
   type PlatformDashboardStats,
   type PlatformUserDto,
   type PlatformAuditLogDto,
   type PlatformAuditLogQuery,
 } from "@app/api-contracts";
-import { ConflictError, NotFoundError } from "@core/errors/index.js";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from "@core/errors/index.js";
 import {
   AuditService,
   AuditActions,
@@ -17,11 +28,34 @@ import {
 } from "@core/audit/index.js";
 import { hashPassword } from "../auth/operations/index.js";
 
+/** A page of tenants + offset pagination metadata (contract-shaped, minus `success`). */
+type TenantPage = Pick<PlatformTenantPageResponse, "data" | "meta">;
+
 /** Request-scoped audit fields, passed from the route via AuditService.contextFrom. */
 export type AuditContext = Pick<
   AuditEntry,
   "actorId" | "requestId" | "ip" | "userAgent"
 >;
+
+/** True if a string is a well-formed http(s) URL. */
+function isValidWebsite(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Pragmatic email check (mirrors the tenant/user email validation elsewhere). */
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** ISO-3166 alpha-2: exactly two ASCII letters. */
+function isValidCountryCode(value: string): boolean {
+  return /^[A-Za-z]{2}$/.test(value);
+}
 
 /** Map a target tenant status to its lifecycle audit action. */
 function statusAuditAction(status: TenantStatus): string {
@@ -135,22 +169,95 @@ export class PlatformService {
   }
 
   // ── Tenant listing / detail ───────────────────────────────────────────────────
-  async listTenants(status?: TenantStatus): Promise<PlatformTenantDto[]> {
-    const tenants = await this.prisma.tenant.findMany({
-      where: status ? { status } : undefined,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: { select: { memberships: true } },
+  /**
+   * List tenants with AUTHORITATIVE backend pagination + optional status filter
+   * and case-insensitive name/slug search. Never loads the whole population:
+   * the page is bounded by pageSize (contract-capped 1–100) and the total count
+   * is queried alongside the page so the client can render a pager.
+   */
+  async listTenants(query: PlatformTenantListQuery = {}): Promise<TenantPage> {
+    const page = Math.max(1, query.page ?? PAGINATION_DEFAULTS.page);
+    const pageSize = Math.min(
+      PAGINATION_DEFAULTS.maxPageSize,
+      Math.max(
+        PAGINATION_DEFAULTS.minPageSize,
+        query.pageSize ?? PAGINATION_DEFAULTS.pageSize,
+      ),
+    );
+
+    const q = query.q?.trim();
+    const where: Prisma.TenantWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { slug: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, tenants] = await Promise.all([
+      this.prisma.tenant.count({ where }),
+      this.prisma.tenant.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: { select: { memberships: true } },
+        },
+      }),
+    ]);
+
+    return {
+      data: tenants.map((t) => this.toTenantDto(t, t._count.memberships)),
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
       },
+    };
+  }
+
+  /**
+   * Update platform-level tenant METADATA (currently just the display name).
+   * The slug is stable external identity and is not editable here; lifecycle
+   * status has its own dedicated endpoint. Audited as TENANT_UPDATED.
+   */
+  async updateTenant(
+    id: string,
+    input: UpdateTenantBody,
+    auditCtx?: AuditContext,
+  ): Promise<PlatformTenantDto> {
+    const existing = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!existing) throw new NotFoundError("Tenant not found");
+
+    const name = input.name.trim();
+    await this.prisma.tenant.update({ where: { id }, data: { name } });
+
+    await this.audit.record({
+      ...auditCtx,
+      action: AuditActions.TenantUpdated,
+      tenantId: id,
+      targetType: "TENANT",
+      targetId: id,
+      // Record the changed field only (no secrets). Previous → new name.
+      metadata: { from: { name: existing.name }, to: { name } },
     });
 
-    return tenants.map((t) => this.toTenantDto(t, t._count.memberships));
+    return this.getTenant(id);
   }
 
   async getTenant(id: string): Promise<PlatformTenantDto> {
@@ -168,6 +275,289 @@ export class PlatformService {
     });
     if (!tenant) throw new NotFoundError("Tenant not found");
     return this.toTenantDto(tenant, tenant._count.memberships);
+  }
+
+  // ── Tenant organization profile (Phase 20) ─────────────────────────────────────
+  /**
+   * The columns that make up the editable organization profile. Kept in one
+   * place so read, write, and audit stay in sync when the field set changes.
+   */
+  private static readonly ORG_FIELDS = [
+    "legalName",
+    "website",
+    "industry",
+    "description",
+    "timeZone",
+    "locale",
+    "addressLine1",
+    "addressLine2",
+    "city",
+    "region",
+    "postalCode",
+    "country",
+    "contactName",
+    "contactEmail",
+    "contactPhone",
+  ] as const;
+
+  /**
+   * Read a tenant's organization profile (identity echo + org/address/contact).
+   * All profile fields are nullable — a tenant may have none set. 404 if unknown.
+   */
+  async getTenantOrganization(id: string): Promise<TenantOrganizationDto> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        legalName: true,
+        website: true,
+        industry: true,
+        description: true,
+        timeZone: true,
+        locale: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        region: true,
+        postalCode: true,
+        country: true,
+        contactName: true,
+        contactEmail: true,
+        contactPhone: true,
+      },
+    });
+    if (!tenant) throw new NotFoundError("Tenant not found");
+    return tenant;
+  }
+
+  /**
+   * Partial update of the organization profile (platform.tenant.update).
+   *
+   * Semantics: only KEYS PRESENT in the body are touched. A present key whose
+   * (trimmed) value is empty CLEARS the column (stored as NULL); a non-empty
+   * value is trimmed and stored. Omitted keys are left unchanged. Identity
+   * (id/slug/name) is not editable here.
+   *
+   * Validation beyond the contract's length caps: `website` must be http(s),
+   * `contactEmail` must look like an email, `country` must be a 2-letter code —
+   * so a malformed value can never be persisted. Audited as
+   * TENANT_ORGANIZATION_UPDATED with the set of changed keys (no values that
+   * could be sensitive beyond what an operator typed; emails/addresses are
+   * business metadata, but we record only the changed KEY NAMES to stay minimal).
+   */
+  async updateTenantOrganization(
+    id: string,
+    input: UpdateTenantOrganizationBody,
+    auditCtx?: AuditContext,
+  ): Promise<TenantOrganizationDto> {
+    const existing = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError("Tenant not found");
+
+    // Normalize: trim strings; empty → null (clear). Only provided keys apply.
+    const data: Record<string, string | null> = {};
+    const changedKeys: string[] = [];
+    for (const key of PlatformService.ORG_FIELDS) {
+      const raw = (input as Record<string, string | undefined>)[key];
+      if (raw === undefined) continue; // key not provided → leave unchanged
+      const trimmed = raw.trim();
+      data[key] = trimmed === "" ? null : trimmed;
+      changedKeys.push(key);
+    }
+
+    if (changedKeys.length === 0) {
+      // Nothing to change — return the current profile without an audit no-op.
+      return this.getTenantOrganization(id);
+    }
+
+    // Field-level validation for the formats we constrain.
+    if (typeof data.website === "string" && !isValidWebsite(data.website)) {
+      throw new ValidationError("Website must be a valid http(s) URL.", {
+        fields: { website: "Must start with http:// or https://" },
+      });
+    }
+    if (
+      typeof data.contactEmail === "string" &&
+      !isValidEmail(data.contactEmail)
+    ) {
+      throw new ValidationError("Contact email is not a valid email address.", {
+        fields: { contactEmail: "Must be a valid email address" },
+      });
+    }
+    if (typeof data.country === "string" && !isValidCountryCode(data.country)) {
+      throw new ValidationError("Country must be a 2-letter ISO-3166 code.", {
+        fields: { country: "Use a 2-letter country code, e.g. US" },
+      });
+    }
+    // Normalize country to uppercase when present.
+    if (typeof data.country === "string")
+      data.country = data.country.toUpperCase();
+
+    await this.prisma.tenant.update({ where: { id }, data });
+
+    await this.audit.record({
+      ...auditCtx,
+      action: AuditActions.TenantOrganizationUpdated,
+      tenantId: id,
+      targetType: "TENANT",
+      targetId: id,
+      // Record only which fields changed — not their values (business metadata
+      // kept out of the audit trail to stay minimal; never any secret).
+      metadata: { changed: changedKeys },
+    });
+
+    return this.getTenantOrganization(id);
+  }
+
+  // ── Tenant Control Center overview ─────────────────────────────────────────────
+  /**
+   * Deep, REAL tenant overview aggregate for the Super Admin Control Center.
+   * Every field is derived from existing tables — no usage/branding/integration
+   * metering is invented (documented gaps live in
+   * docs/PHASE-19-TENANT-CONTROL-CENTER.md). Kept as a SEPARATE call from the
+   * lean tenant list so the list stays fast; the detail page fetches this once.
+   *
+   * Primary administrator = the oldest ACTIVE membership's user (the account
+   * created first for the tenant during provisioning, in practice its admin).
+   */
+  async getTenantOverview(id: string): Promise<PlatformTenantOverviewDto> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!tenant) throw new NotFoundError("Tenant not found");
+
+    const now = new Date();
+
+    const [
+      membersTotal,
+      membersActive,
+      membersInvited,
+      membersSuspended,
+      credTotal,
+      credActive,
+      credRevoked,
+      credExpired,
+      primaryMembership,
+      tenantPlan,
+      overrideCount,
+    ] = await Promise.all([
+      this.prisma.tenantMembership.count({ where: { tenantId: id } }),
+      this.prisma.tenantMembership.count({
+        where: { tenantId: id, status: "ACTIVE" },
+      }),
+      this.prisma.tenantMembership.count({
+        where: { tenantId: id, status: "INVITED" },
+      }),
+      this.prisma.tenantMembership.count({
+        where: { tenantId: id, status: "SUSPENDED" },
+      }),
+      this.prisma.tenantApiCredential.count({ where: { tenantId: id } }),
+      this.prisma.tenantApiCredential.count({
+        where: { tenantId: id, status: "ACTIVE" },
+      }),
+      this.prisma.tenantApiCredential.count({
+        where: { tenantId: id, status: "REVOKED" },
+      }),
+      // Expired = still ACTIVE but past its expiry (an operational health signal).
+      this.prisma.tenantApiCredential.count({
+        where: { tenantId: id, status: "ACTIVE", expiresAt: { lt: now } },
+      }),
+      // Oldest ACTIVE membership → the tenant's primary administrator.
+      this.prisma.tenantMembership.findFirst({
+        where: { tenantId: id, status: "ACTIVE" },
+        orderBy: { createdAt: "asc" },
+        select: {
+          createdAt: true,
+          user: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      this.prisma.tenantPlan.findUnique({
+        where: { tenantId: id },
+        select: {
+          assignedAt: true,
+          plan: {
+            select: {
+              key: true,
+              name: true,
+              _count: { select: { entitlements: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.tenantEntitlementOverride.count({ where: { tenantId: id } }),
+    ]);
+
+    // Effective entitlement count = plan entitlements plus overrides that are
+    // NOT already part of the plan. We approximate the union count precisely by
+    // resolving distinct keys only when a plan exists; without a plan, the
+    // effective set is exactly the overrides.
+    let entitlementCount = overrideCount;
+    if (tenantPlan) {
+      const [planKeys, overrideKeys] = await Promise.all([
+        this.prisma.planEntitlement.findMany({
+          where: { plan: { key: tenantPlan.plan.key } },
+          select: { entitlement: { select: { key: true } } },
+        }),
+        this.prisma.tenantEntitlementOverride.findMany({
+          where: { tenantId: id },
+          select: { entitlement: { select: { key: true } } },
+        }),
+      ]);
+      const union = new Set<string>();
+      for (const pe of planKeys) union.add(pe.entitlement.key);
+      for (const ov of overrideKeys) union.add(ov.entitlement.key);
+      entitlementCount = union.size;
+    }
+
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      status: tenant.status,
+      createdAt: tenant.createdAt.toISOString(),
+      updatedAt: tenant.updatedAt.toISOString(),
+      primaryAdmin: primaryMembership
+        ? {
+            id: primaryMembership.user.id,
+            name: primaryMembership.user.name,
+            email: primaryMembership.user.email,
+            since: primaryMembership.createdAt.toISOString(),
+          }
+        : null,
+      members: {
+        total: membersTotal,
+        active: membersActive,
+        invited: membersInvited,
+        suspended: membersSuspended,
+      },
+      credentials: {
+        total: credTotal,
+        active: credActive,
+        revoked: credRevoked,
+        expired: credExpired,
+      },
+      plan: tenantPlan
+        ? {
+            key: tenantPlan.plan.key,
+            name: tenantPlan.plan.name,
+            assignedAt: tenantPlan.assignedAt.toISOString(),
+            entitlementCount,
+            overrideCount,
+          }
+        : null,
+    };
   }
 
   // ── Tenant status change ───────────────────────────────────────────────────────

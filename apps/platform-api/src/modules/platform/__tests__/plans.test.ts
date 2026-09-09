@@ -200,4 +200,88 @@ describe("Plans & entitlements authorization", () => {
     expect(res.json().data.plan.key).toBe("growth");
     await app.close();
   });
+
+  it("denies setting an entitlement override without platform.entitlement.manage (403)", async () => {
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformEntitlementView]),
+            ),
+        },
+      },
+    });
+    const res = await app.inject({
+      method: "PUT",
+      url: `${BASE}/tenants/t1/entitlements/max_users`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { value: "25" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("PLATFORM_ACCESS_DENIED");
+    await app.close();
+  });
+
+  it("sets a per-tenant entitlement override with platform.entitlement.manage (200) and audits it", async () => {
+    const overrideUpsert = vi.fn().mockResolvedValue({});
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const app = await buildTestApp({
+      prisma: {
+        platformMembership: {
+          findUnique: vi.fn().mockResolvedValue(ACTIVE_PLATFORM),
+        },
+        userRole: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue(
+              rolesWithPerms([PermissionKeys.PlatformEntitlementManage]),
+            ),
+        },
+        tenant: { findUnique: vi.fn().mockResolvedValue({ id: "t1" }) },
+        entitlement: {
+          findUnique: vi.fn().mockResolvedValue({ id: "e1", key: "max_users" }),
+        },
+        tenantEntitlementOverride: {
+          upsert: overrideUpsert,
+          findMany: vi.fn().mockResolvedValue([
+            {
+              value: "25",
+              entitlement: {
+                key: "max_users",
+                name: "Maximum users",
+                valueType: "NUMERIC",
+              },
+            },
+          ]),
+        },
+        tenantPlan: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: auditCreate },
+      },
+    });
+    const res = await app.inject({
+      method: "PUT",
+      url: `${BASE}/tenants/t1/entitlements/max_users`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { value: "25" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(overrideUpsert).toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "TENANT_ENTITLEMENT_OVERRIDE_SET",
+        }),
+      }),
+    );
+    const maxUsers = res
+      .json()
+      .data.entitlements.find((e: { key: string }) => e.key === "max_users");
+    expect(maxUsers.source).toBe("OVERRIDE");
+    await app.close();
+  });
 });

@@ -53,10 +53,16 @@ const NAV: NavItem[] = [
 export function PlatformLayout() {
   const navigate = useNavigate();
   const clearSession = useAuthStore((s) => s.clearSession);
-  const can = useAuthStore((s) => s.can);
+  // Subscribe to the permissions array itself (not just the stable `can`
+  // reference) so the nav re-renders once platform permissions load after the
+  // initial bootstrap — otherwise the sidebar renders empty on first load and
+  // never updates when authorization arrives.
+  const permissions = useAuthStore((s) => s.permissions);
   usePlatformBootstrap();
 
-  const visible = NAV.filter((n) => !n.permission || can(n.permission));
+  const visible = NAV.filter(
+    (n) => !n.permission || permissions.includes(n.permission),
+  );
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">

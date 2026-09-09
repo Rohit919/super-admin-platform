@@ -56,8 +56,10 @@ no pricing). See `prisma/seed.ts`.
 
 The Super Admin tenant detail page shows the active plan, effective entitlements
 (with PLAN/OVERRIDE source), and — for `platform.plan.manage` — a plan
-assignment control. Permission checks in the UI are UX-only; the API is the
-authoritative boundary.
+assignment control. For `platform.entitlement.manage`, each entitlement row also
+exposes a per-tenant **override editor** (set a value, or clear an existing
+override to fall back to the plan value). Permission checks in the UI are
+UX-only; the API is the authoritative boundary.
 
 ## Out of scope (future / product decision)
 

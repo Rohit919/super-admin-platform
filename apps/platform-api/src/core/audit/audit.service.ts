@@ -19,6 +19,8 @@ export const AuditActions = {
 
   // ── Platform (Super Admin) actions ──────────────────────────────────────────
   TenantProvisioned: "TENANT_PROVISIONED",
+  TenantUpdated: "TENANT_UPDATED",
+  TenantOrganizationUpdated: "TENANT_ORGANIZATION_UPDATED",
   TenantSuspended: "TENANT_SUSPENDED",
   TenantActivated: "TENANT_ACTIVATED",
   TenantArchived: "TENANT_ARCHIVED",
