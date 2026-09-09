@@ -35,6 +35,8 @@ function makeGymPrisma() {
     workoutPlan: model(),
     workoutSession: model(),
     attendance: model(),
+    gymMembership: model(),
+    payment: model(),
   };
   return {
     prisma: delegates as unknown as PrismaClient,
@@ -98,6 +100,8 @@ describe("getTenantDb (gym-domain accessors)", () => {
     "workoutPlan",
     "workoutSession",
     "attendance",
+    "gymMembership",
+    "payment",
   ] as const;
 
   for (const name of accessorNames) {
@@ -144,6 +148,28 @@ describe("getTenantDb (gym-domain accessors)", () => {
 
     expect(delegates.attendance.count).toHaveBeenCalledWith({
       where: { method: "MANUAL", tenantId: "tenant-a" },
+    });
+  });
+
+  it("payment.create injects tenantId into data (money fields preserved)", async () => {
+    const { prisma, delegates } = makeGymPrisma();
+    await getTenantDb(prisma, "tenant-a").payment.create({
+      memberId: "m1",
+      amountMinor: 2500,
+      currency: "USD",
+      method: "CARD",
+      status: "SUCCEEDED",
+    });
+
+    expect(delegates.payment.create).toHaveBeenCalledWith({
+      data: {
+        memberId: "m1",
+        amountMinor: 2500,
+        currency: "USD",
+        method: "CARD",
+        status: "SUCCEEDED",
+        tenantId: "tenant-a",
+      },
     });
   });
 

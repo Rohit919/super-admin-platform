@@ -52,6 +52,14 @@ const PERMISSION_DESCRIPTIONS: Record<PermissionKey, string> = {
   "metrics.read": "View operational metrics and diagnostics",
   "settings.read": "View settings",
   "settings.update": "Update settings",
+  // Gym domain (Phase 6B)
+  "memberships.read": "View gym memberships",
+  "memberships.create": "Create gym memberships",
+  "memberships.update": "Update gym memberships",
+  "memberships.cancel": "Cancel gym memberships",
+  "payments.read": "View payments",
+  "payments.create": "Record payments",
+  "payments.refund": "Refund payments",
   // Platform (Super Admin) permissions
   "platform.dashboard.view": "View the platform dashboard",
   "platform.tenant.view": "View tenants",

@@ -83,6 +83,9 @@ model Tenant {
   workoutPlans    WorkoutPlan[]
   workoutSessions WorkoutSession[]
   attendance      Attendance[]
+  // Gym commercial domain (Phase 6B)
+  gymMemberships  GymMembership[]
+  payments        Payment[]
 
   @@index([status])
   @@map("tenants")
@@ -572,6 +575,9 @@ model Member {
   workoutPlans    WorkoutPlan[]
   workoutSessions WorkoutSession[]
   attendance      Attendance[]
+  // Commercial relationship (Phase 6B) — distinct from TenantMembership.
+  gymMemberships  GymMembership[]
+  payments        Payment[]
 
   // Email is unique WITHIN a tenant (not globally) — the same person may be a
   // member of multiple gyms. Partial by tenant to avoid cross-tenant clashes.
@@ -778,4 +784,133 @@ model Attendance {
   @@index([tenantId, checkInAt])
   @@index([memberId])
   @@map("attendance")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Gym commercial domain (Phase 6B — memberships & payments)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// GymMembership is a MEMBER's commercial subscription to the gym. It is a
+// SEPARATE concept from:
+//   - TenantMembership   (a staff/admin User's membership in the tenant org)
+//   - PlatformMembership (a User's membership in the SaaS operator platform)
+//   - Plan / Entitlement (platform SaaS feature-gating — deliberately non-commercial)
+// Those remain untouched. GymMembership + Payment model the gym's own
+// commercial relationship with its members.
+//
+// Money is stored as an INTEGER in the currency's MINOR unit (`amountMinor` /
+// `priceMinor`) alongside an ISO-4217 `currency` code — never a float. "Minor"
+// (not "cents") because not every currency has a 1/100 subunit (e.g. JPY).
+// Currency is validated against an ISO-4217 allow-list at the API boundary
+// (see packages/api-contracts currency validator).
+//
+// No payment processor is integrated here. `Payment.reference` is a free-form
+// external reference (e.g. a processor charge id) for a later integration layer.
+//
+// Both models are TENANT-OWNED: they carry `tenantId` (indexed), are enrolled
+// in TENANT_OWNED_MODELS, and must be accessed through getTenantDb().
+
+enum GymMembershipStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+
+  @@map("gym_membership_status")
+}
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  ONE_TIME
+
+  @@map("billing_interval")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  OTHER
+
+  @@map("payment_method")
+}
+
+// A member's commercial subscription to the gym. Tenant-owned.
+model GymMembership {
+  id       String              @id @default(cuid())
+  tenantId String
+  memberId String
+  status   GymMembershipStatus @default(PENDING)
+
+  // Human-facing plan label for this membership (e.g. "Monthly Unlimited").
+  name            String
+  // Price in the currency's MINOR unit (integer, never a float).
+  priceMinor      Int
+  // ISO-4217 currency code (e.g. "USD", "JPY"). Validated at the API boundary.
+  currency        String
+  billingInterval BillingInterval @default(MONTHLY)
+
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member   Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([memberId])
+  @@map("gym_memberships")
+}
+
+// A payment made by a member. Optionally tied to a GymMembership; ad-hoc
+// payments (drop-in fees, merchandise) may have no membership. Tenant-owned.
+model Payment {
+  id              String  @id @default(cuid())
+  tenantId        String
+  memberId        String
+  // Optional — ad-hoc payments are not tied to a subscription.
+  gymMembershipId String?
+
+  // Amount in the currency's MINOR unit (integer, never a float).
+  amountMinor Int
+  // ISO-4217 currency code. Validated at the API boundary.
+  currency    String
+  status      PaymentStatus @default(PENDING)
+  method      PaymentMethod @default(CASH)
+
+  paidAt    DateTime?
+  // Free-form external reference (e.g. a processor charge id). No processor
+  // integration exists yet — this is a placeholder for a later integration.
+  reference String?
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member        Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  gymMembership GymMembership? @relation(fields: [gymMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([memberId])
+  @@index([gymMembershipId])
+  @@map("payments")
 }

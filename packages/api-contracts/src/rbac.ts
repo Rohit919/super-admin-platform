@@ -50,6 +50,18 @@ export const PermissionKeys = {
   SettingsRead: "settings.read",
   SettingsUpdate: "settings.update",
 
+  // ── Gym domain (Phase 6B) ─────────────────────────────────────────────────
+  // Tenant-scoped gym commercial records. Refund is split from create because
+  // refunding is materially more sensitive than recording an ordinary payment.
+  MembershipsRead: "memberships.read",
+  MembershipsCreate: "memberships.create",
+  MembershipsUpdate: "memberships.update",
+  MembershipsCancel: "memberships.cancel",
+
+  PaymentsRead: "payments.read",
+  PaymentsCreate: "payments.create",
+  PaymentsRefund: "payments.refund",
+
   // ── Platform (Super Admin) permissions ──────────────────────────────────────
   // These govern the PLATFORM itself, not any single tenant. They are granted
   // to platform roles (Role.tenantId = null) and gated by an ACTIVE
