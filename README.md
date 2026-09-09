@@ -1,44 +1,44 @@
-# 🚀 Super Admin Platform — Monorepo
+# 🏋️ Gym Platform API
 
-Platform control-plane monorepo: a **Platform API** (`platform-api`) and a **Super Admin frontend** (`super-admin`), sharing type-safe **TypeBox API contracts**, built on Prisma, Docker, Prometheus, and the Golden Orchestrator pattern.
+The centralized backend API for the Gym SaaS Platform. A multi-tenant Fastify
+service — authentication, authorization, tenant isolation, and (incrementally)
+the gym domain — built on Prisma, PostgreSQL, Redis, and the Golden Orchestrator
+pattern. It is the single source of truth for business rules and data access;
+all client applications (super-admin, tenant-web, native mobile) consume it.
 
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen?logo=node.js)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## 📦 Monorepo Layout
+## 📦 Repository Layout
 
-This is an **npm-workspaces** monorepo with three workspaces plus root-level Prisma and infra.
+This is an **npm-workspaces** monorepo: the API app, a shared contracts package,
+and root-level Prisma and infrastructure.
 
 ```
-super-admin-platform/
+gym-platform-api/
 ├── apps/
-│   ├── platform-api/               # Platform API — control plane (@app/api)
-│   │   ├── src/
-│   │   │   ├── app.ts              # Plugin + module composition
-│   │   │   ├── server.ts           # Process lifecycle / graceful shutdown
-│   │   │   ├── config/             # env schema + derived config
-│   │   │   ├── core/               # errors, hooks, orchestration, utils, testing
-│   │   │   ├── plugins/            # db, auth, cors, env, metrics, swagger
-│   │   │   └── modules/            # vertical slices (see below)
-│   │   ├── tsconfig.json  tsup.config.ts  vitest.config.ts
-│   │   └── Dockerfile
-│   │
-│   └── super-admin/                # Super Admin SPA — the platform frontend (@app/super-admin)
-│       ├── src/                    # app, layouts, pages, modules, stores, lib
-│       ├── vite.config.ts          # dev on :5174, proxy /api → :3000
-│       └── index.html
+│   └── platform-api/               # The API — control plane (@app/api)
+│       ├── src/
+│       │   ├── app.ts              # Plugin + module composition
+│       │   ├── server.ts           # Process lifecycle / graceful shutdown
+│       │   ├── config/             # env schema + derived config
+│       │   ├── core/               # errors, tenant, authorization, audit, security, observability
+│       │   ├── plugins/            # db, auth, cors, env, metrics, swagger, csrf
+│       │   ├── modules/            # vertical slices (see below)
+│       │   ├── queue/  workers/    # BullMQ background jobs
+│       ├── tsconfig.json  tsup.config.ts  vitest.config.ts
+│       └── Dockerfile
 │
 ├── packages/
 │   └── api-contracts/              # Shared TypeBox schemas (@app/api-contracts)
-│       └── src/                    # common, auth, users, index
 │
-├── prisma/                         # schema + migrations (shared)
+├── prisma/                         # schema.prisma + migrations + seed
 ├── docker/                         # postgres, prometheus, grafana
+├── k8s/                            # deployment manifests
 ├── docs/                           # architecture + guides
-├── .kiro/                          # specs (production-hardening, enterprise-scale)
 └── package.json                    # workspace manager
 ```
 
@@ -50,46 +50,38 @@ Each domain owns its full lifecycle in one folder:
 apps/platform-api/src/modules/
 ├── api-index/    # GET /api/v1 — version + endpoint catalog
 ├── health/       # liveness + readiness
-├── auth/         # login, register, refresh, logout, verify
-│   ├── auth.routes.ts  auth.schemas.ts  auth.orchestrator.ts
-│   ├── operations/     # hash-password, verify-password (pure fns)
-│   ├── repositories/   # data access (adopt when needed)
-│   └── __tests__/
-├── users/        # profile
-├── todos/        # reference Golden Orchestrator implementation
-├── orders/       # scaffolded skeleton (no model yet)
-└── example/      # direct-Prisma CRUD (contrast to orchestrator)
+├── auth/         # login, register, refresh, logout, verify, OTP, password reset
+├── users/        # user profile + management
+├── roles/        # RBAC role administration
+├── tenants/      # caller-scoped tenant operations
+├── platform/     # platform (super-admin) control plane — tenant lifecycle, plans, audit
+├── branding/     # tenant branding
+└── admin/        # operational diagnostics dashboard
 ```
+
+The gym domain (members, trainers, workouts, memberships, payments, etc.) is
+being added incrementally on top of this multi-tenant foundation.
 
 ---
 
 ## ✨ Features
 
-### Platform API (`apps/platform-api`)
-
 - **Fastify + TypeScript** — strict mode, native performance
 - **Prisma + PostgreSQL** — type-safe ORM with migrations
+- **Multi-tenancy** — explicit, row-level `tenantId` scoping enforced in application code (no hidden middleware)
+- **RBAC** — permission-based authorization; tenant roles and platform roles
+- **Auth** — access + refresh tokens with rotation, OTP, password reset, account lockout
 - **Golden Orchestrator pattern** — pipeline-based business logic with per-stage metrics
-- **JWT auth** — access + refresh tokens with rotation
-- **TypeBox validation** — request/response schemas shared with the frontend
+- **TypeBox validation** — request/response schemas shared via `@app/api-contracts`
 - **Prometheus metrics** at `/metrics`, **Swagger** at `/documentation`
 - **Health/readiness probes**, graceful shutdown, structured Pino logging
-- **41 integration tests** with a mock-based test harness (no DB needed)
+- **BullMQ workers** for background jobs
+- **Audit logging** for high-value authorization changes
 
-### Super Admin (`apps/super-admin`)
+### Shared contracts (`packages/api-contracts`)
 
-- **React + Vite + TypeScript** — fast SPA, no SSR overhead, route-level code-splitting
-- **TanStack Query** for server state, **Zustand** for client/UI state
-- **React Router** with auth guards + permission-aware route/nav authorization
-- **Typed API client** with silent `401 → refresh → retry` handling — no raw `fetch()` in components
-- **RBAC UI** driven by `/users/me`, with the API as the security boundary
-- Consumes the **same TypeBox contracts** the API validates against
-- 📖 See [`docs/SUPER-ADMIN-FRONTEND.md`](docs/SUPER-ADMIN-FRONTEND.md) for frontend ownership, the Platform API relationship, and deployment responsibility
-
-### Shared (`packages/api-contracts`)
-
-- Single source of truth for request/response shapes
-- The API and the Super Admin frontend import the exact same schemas — **contract drift is impossible**
+Single source of truth for request/response shapes. The API and every client
+import the exact same TypeBox schemas — contract drift is impossible.
 
 ---
 
@@ -97,10 +89,10 @@ apps/platform-api/src/modules/
 
 ### Prerequisites
 
-- Node.js 20+ LTS
+- Node.js 22+ LTS
 - Docker & Docker Compose
 
-### 1. Install (all workspaces)
+### 1. Install
 
 ```bash
 npm install
@@ -111,23 +103,31 @@ npm install
 ```bash
 npm run docker:up          # starts postgres (+ prometheus, grafana)
 npm run db:migrate         # applies Prisma migrations
+npm run db:seed            # seeds RBAC + an initial admin (see below)
 ```
 
 Ensure a `.env` exists at the repo root (see [Environment](#-environment)).
 
-### 3. Run the apps
+The seed requires admin credentials via environment variables (there is no
+default password, and it refuses to run in production without an explicit
+opt-in):
 
 ```bash
-# terminal 1 — API on :3000
-npm run dev:api
+SEED_ADMIN_EMAIL=admin@example.com \
+SEED_ADMIN_PASSWORD='a-strong-password-min-12-chars' \
+SEED_ADMIN_NAME='Platform Admin' \
+npm run db:seed
+```
 
-# terminal 2 — Super Admin on :5174 (proxies /api to :3000)
-npm run dev:super-admin
+### 3. Run the API
+
+```bash
+npm run dev:api            # API on :3000
+npm run worker --workspace @app/api   # background job worker (optional)
 ```
 
 Then open:
 
-- **Super Admin UI**: http://localhost:5174 (login: `demo@example.com` / `password123` if seeded)
 - **API index**: http://localhost:3000/api/v1 (version + endpoint catalog)
 - **Swagger**: http://localhost:3000/documentation
 - **Prometheus**: http://localhost:9090
@@ -137,19 +137,21 @@ Then open:
 
 ## 🛠️ Scripts (run from repo root)
 
-| Script                              | What it does                                  |
-| ----------------------------------- | --------------------------------------------- |
-| `npm run dev:api`                   | Start the Fastify API (tsx watch)             |
-| `npm run dev:super-admin`           | Start the React Super Admin frontend (Vite)   |
-| `npm run build`                     | Build contracts → api → super-admin, in order |
-| `npm run build:contracts`           | Build the shared contracts package            |
-| `npm run build:api`                 | Build the API only                            |
-| `npm run build:super-admin`         | Build the Super Admin frontend only           |
-| `npm run test`                      | Run the API test suite                        |
-| `npm run typecheck`                 | Typecheck every workspace                     |
-| `npm run db:migrate`                | Prisma migrate (dev)                          |
-| `npm run db:studio`                 | Open Prisma Studio                            |
-| `npm run docker:up` / `docker:down` | Start / stop infra containers                 |
+| Script                              | What it does                         |
+| ----------------------------------- | ------------------------------------ |
+| `npm run dev:api`                   | Start the Fastify API (tsx watch)    |
+| `npm run build`                     | Build contracts → api, in order      |
+| `npm run build:contracts`           | Build the shared contracts package   |
+| `npm run build:api`                 | Build the API only                   |
+| `npm run test`                      | Run the API test suite               |
+| `npm run typecheck`                 | Typecheck every workspace            |
+| `npm run lint`                      | ESLint (flat config)                 |
+| `npm run check:api-drift`           | Fail on hardcoded `/api/v1` paths    |
+| `npm run check:boundary`            | Enforce platform boundary guardrails |
+| `npm run db:migrate`                | Prisma migrate (dev)                 |
+| `npm run db:seed`                   | Seed RBAC + initial admin            |
+| `npm run db:studio`                 | Open Prisma Studio                   |
+| `npm run docker:up` / `docker:down` | Start / stop infra containers        |
 
 Per-workspace scripts run with `npm run <script> --workspace @app/<name>`.
 
@@ -157,7 +159,7 @@ Per-workspace scripts run with `npm run <script> --workspace @app/<name>`.
 
 ## 🎯 API Endpoints
 
-`GET /api/v1` returns a live catalog. Current surface:
+`GET /api/v1` returns a live catalog. A sample of the current surface:
 
 **Public**
 
@@ -167,33 +169,32 @@ Per-workspace scripts run with `npm run <script> --workspace @app/<name>`.
 - `POST /api/v1/auth/register` — create account
 - `POST /api/v1/auth/login` — log in (returns access + refresh tokens)
 - `POST /api/v1/auth/refresh` — rotate refresh token
-- `POST /api/v1/auth/logout` — revoke refresh token
 
 **Protected (Bearer token)**
 
 - `GET /api/v1/auth/verify` — verify access token
 - `GET /api/v1/users/me` — current user profile
-- `GET /api/v1/todos` — list todos
-- `POST /api/v1/todos` — **create todo (Golden Orchestrator) ⭐**
-- `GET /api/v1/examples` — list examples (direct Prisma)
-- `POST /api/v1/examples` — create example (direct Prisma)
+- `GET /api/v1/platform/*` — platform control-plane (tenant lifecycle, plans, audit)
+
+See [docs/API_ENDPOINTS.md](./docs/API_ENDPOINTS.md) for the full surface.
 
 ---
 
 ## 🏗️ Golden Orchestrator Pattern
 
-Structured, observable business logic through pipelines. See **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** for the deep dive.
+Structured, observable business logic through pipelines. See
+**[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** for the deep dive.
 
 ```typescript
-class CreateTodoOrchestrator extends BaseOrchestrator<
-  TodoPipelineContext,
-  Todo,
-  CreateTodoInput
+class CreateMemberOrchestrator extends BaseOrchestrator<
+  MemberPipelineContext,
+  Member,
+  CreateMemberInput
 > {
-  protected getPipeline(): PipelineStage<TodoPipelineContext>[] {
+  protected getPipeline(): PipelineStage<MemberPipelineContext>[] {
     return [
       { name: "validate-input", operation: validateInput, critical: true },
-      { name: "create-todo", operation: createTodo, critical: true },
+      { name: "create-member", operation: createMember, critical: true },
       { name: "notify-creation", operation: notifyCreation, critical: false },
     ];
   }
@@ -204,39 +205,34 @@ class CreateTodoOrchestrator extends BaseOrchestrator<
 composability, critical vs non-critical stages, clean separation of concerns.
 
 **When to use it:** multi-step logic, per-operation metrics, independent failure modes.
-**When to use direct Prisma access:** simple single-query CRUD (see the `example` module).
+**When to use direct Prisma access:** simple single-query CRUD.
 
 ---
 
-## 🔗 Shared Contracts
+## 🏢 Multi-Tenancy & Isolation
 
-The `packages/api-contracts` package holds TypeBox schemas consumed by both apps:
+Tenant isolation is a server-side security boundary. Tenant-owned records carry
+`tenantId`, and every tenant-scoped query is filtered explicitly through the
+`getTenantDb(prisma, tenantId)` accessor — there is no hidden Prisma middleware
+rewriting queries. Client-supplied tenant hints (e.g. `X-Tenant-Id`) are never
+trusted; the active tenant is resolved from an authenticated `TenantMembership`.
 
-```
-              @app/api-contracts
-               /              \
-              ↓                ↓
-     apps/platform-api          apps/super-admin
-     (Fastify schemas)          (typed API client)
-```
-
-This prevents mismatches like backend `"cancelled"` vs frontend `"cancel"`. Change a
-contract once; both sides get the new type immediately. During dev the package resolves
-to source via path aliases (tsconfig / vite / vitest / tsup), so there's no build step in
-the inner loop.
+Platform (super-admin) operations deliberately bypass tenant scoping and use the
+raw Prisma client, gated behind an `PlatformMembership` + `platform.*` RBAC
+permission. See [docs/super-admin/MULTI-TENANT-ARCHITECTURE.md](./docs/super-admin/MULTI-TENANT-ARCHITECTURE.md).
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-npm run test                         # API suite (41 tests)
+npm run test                         # API suite
 npm run test:coverage --workspace @app/api
 ```
 
-Tests use `apps/platform-api/src/core/testing/test-app.ts` — a `buildTestApp()` factory that
-injects mock Prisma and env, so tests need **no database and no `.env`**. Tests are
-co-located inside each module's `__tests__/`.
+Tests use `apps/platform-api/src/core/testing/test-app.ts` — a `buildTestApp()`
+factory that injects mock Prisma and env, so tests need **no database and no
+`.env`**. Tests are co-located inside each module's `__tests__/`.
 
 ---
 
@@ -247,23 +243,19 @@ co-located inside each module's `__tests__/`.
 - **Health checks** — `/api/v1/health` (liveness), `/api/v1/ready` (DB readiness)
 - **Structured logging** — Pino, with request IDs and authenticated-user context
 
-Generate dashboards from orchestrator code:
-
-```bash
-npm run generate:dashboards   # (run within apps/platform-api if wired there)
-```
-
 ---
 
 ## 🔒 Environment
 
-Root `.env` (validated at startup by `@fastify/env`):
+Root `.env` (validated at startup by `@fastify/env`). See `.env.example` for the
+full list. Core values:
 
 ```env
 NODE_ENV=development
 PORT=3000
 HOST=0.0.0.0
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fastify_starter
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/gym_platform
+DATABASE_DIRECT_URL=postgresql://postgres:postgres@localhost:5432/gym_platform
 JWT_SECRET=change-me-to-at-least-32-characters-long
 JWT_EXPIRES_IN=15m
 REFRESH_TOKEN_EXPIRES_IN=7d
@@ -276,37 +268,19 @@ METRICS_ENABLED=true
 SWAGGER_ENABLED=true
 ```
 
-The Super Admin frontend reads `VITE_API_BASE_URL` (defaults to `/api/v1`, proxied to the API in dev).
+Never commit real secrets. Production secrets must be supplied through a
+secret-management system, not the repository.
 
 ---
 
 ## 🔐 Security
 
-- JWT auth with refresh-token rotation
-- Rate limiting, Helmet security headers, configurable CORS
+- JWT auth with refresh-token rotation and family reuse detection
+- Permission-based RBAC; tenant isolation enforced server-side
+- Rate limiting, Helmet security headers, configurable CORS, origin-based CSRF
 - TypeBox input validation, Prisma-parameterized queries
 - Startup env validation (fail fast on missing config)
-
-Further hardening and scale work is planned in the specs under
-**`.kiro/specs/production-hardening`** and **`.kiro/specs/enterprise-scale`**
-(RBAC, audit logging, Redis-backed rate limiting, BullMQ workers, distributed tracing, etc.).
-
----
-
-## 📚 Documentation
-
-- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Golden Orchestrator pattern
-- **[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)** — setup & first service
-- **[docs/PRODUCTION_PLAN.md](./docs/PRODUCTION_PLAN.md)** — production hardening plan
-- **[DEPLOY.md](./DEPLOY.md)** — deployment options
-
----
-
-## 📝 License
-
-MIT — see [LICENSE](LICENSE).
-
-Built with ❤️ using Fastify, Prisma, React, and TypeBox.
+- Audit logging for authorization changes
 
 ---
 
@@ -326,14 +300,9 @@ const data = await withCircuitBreaker(
 );
 ```
 
-- Each service name gets its own breaker (state persists across calls).
-- The `AbortSignal` cancels the underlying request when the timeout elapses.
-- State is exported to Prometheus as `circuit_breaker_state{service,state}`
-  (`closed` / `open` / `half_open`, 1 = current).
-- An open circuit throws `CircuitOpenError` (503) with no network attempt.
+State is exported to Prometheus as `circuit_breaker_state{service,state}`.
 
-Different services can have different tolerances — tune `timeout`,
-`errorThresholdPercentage`, and `resetTimeout` per call site.
+---
 
 ## ⚙️ Background workers
 
@@ -342,10 +311,27 @@ BullMQ. The API enqueues a job and returns immediately; a separate worker
 process consumes it.
 
 ```bash
-npm run dev:api      # API (enqueues jobs)
-npm run worker --workspace @app/api   # worker (processes jobs)
+npm run dev:api                        # API (enqueues jobs)
+npm run worker --workspace @app/api    # worker (processes jobs)
 ```
 
 Jobs retry 3× with exponential backoff; exhausted jobs remain in the failed set
 (dead-letter) and are logged at `error`. Queue depth is exported as
 `bullmq_jobs{queue,state}` on the worker's metrics port (`9101`).
+
+---
+
+## 📚 Documentation
+
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — architecture & orchestrator pattern
+- **[docs/MULTI_TENANT_ARCHITECTURE.md](./docs/MULTI_TENANT_ARCHITECTURE.md)** — multi-tenant model & isolation
+- **[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)** — setup & first service
+- **[DEPLOY.md](./DEPLOY.md)** — deployment options
+
+---
+
+## 📝 License
+
+MIT — see [LICENSE](LICENSE).
+
+Built with Fastify, Prisma, and TypeBox.
