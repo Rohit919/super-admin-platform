@@ -62,6 +62,17 @@ export interface TenantDb {
     Prisma.AttendanceWhereInput,
     Prisma.AttendanceUncheckedCreateInput
   >;
+  // ─── Gym commercial domain (Phase 6B) ─────────────────────────────────────
+  readonly gymMembership: TenantModelAccessor<
+    Prisma.GymMembershipFindManyArgs,
+    Prisma.GymMembershipWhereInput,
+    Prisma.GymMembershipUncheckedCreateInput
+  >;
+  readonly payment: TenantModelAccessor<
+    Prisma.PaymentFindManyArgs,
+    Prisma.PaymentWhereInput,
+    Prisma.PaymentUncheckedCreateInput
+  >;
 }
 
 interface TenantAuditLogAccessor {
@@ -157,5 +168,9 @@ export function getTenantDb(prisma: PrismaClient, tenantId: string): TenantDb {
     workoutPlan: makeAccessor(prisma.workoutPlan),
     workoutSession: makeAccessor(prisma.workoutSession),
     attendance: makeAccessor(prisma.attendance),
+
+    // ─── Gym commercial domain (Phase 6B) ───────────────────────────────────
+    gymMembership: makeAccessor(prisma.gymMembership),
+    payment: makeAccessor(prisma.payment),
   };
 }

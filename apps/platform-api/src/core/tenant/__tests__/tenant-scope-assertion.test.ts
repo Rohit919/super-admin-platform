@@ -35,6 +35,8 @@ describe("assertTenantScoped (allow-list gating)", () => {
     "WorkoutPlan",
     "WorkoutSession",
     "Attendance",
+    "GymMembership",
+    "Payment",
   ];
 
   for (const model of gymModels) {

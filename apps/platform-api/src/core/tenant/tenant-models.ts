@@ -38,6 +38,9 @@ export const TENANT_OWNED_MODELS = [
   "WorkoutPlan",
   "WorkoutSession",
   "Attendance",
+  // Phase 6B — gym commercial domain.
+  "GymMembership",
+  "Payment",
 ] as const satisfies readonly string[];
 
 export type TenantOwnedModel = (typeof TENANT_OWNED_MODELS)[number];
