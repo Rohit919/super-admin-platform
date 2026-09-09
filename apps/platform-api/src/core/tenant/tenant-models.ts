@@ -21,14 +21,24 @@
 // events (§41), so tenantId is OPTIONAL on audit writes and enforcing it would
 // be wrong. Audit tenant-scoping is applied explicitly where a tenant context
 // exists (via AuditService), not by this data-plane assertion.
-// Currently EMPTY: no tenant-owned data-plane model exists yet. Tenant-owned
-// models are added here deliberately as they are introduced — at which point
-// the dev assertion and tenant-scoped accessor begin enforcing them.
-//
 // The tenant-scoping infrastructure (getTenantDb accessor, assertTenantScoped
 // dev guard, assertSameTenant relationship guard) is fully implemented and
 // unit-tested; this list is the single switch that opts a model into it.
-export const TENANT_OWNED_MODELS = [] as const satisfies readonly string[];
+//
+// Phase 6A — the core gym domain is the first set of tenant-owned data-plane
+// models. Each carries a `tenantId` column and must be accessed through the
+// tenant-scoped accessor (getTenantDb). Names are the Prisma MODEL names
+// (PascalCase), matching what Prisma reports to the assertion.
+export const TENANT_OWNED_MODELS = [
+  "Member",
+  "Trainer",
+  "Exercise",
+  "Workout",
+  "WorkoutItem",
+  "WorkoutPlan",
+  "WorkoutSession",
+  "Attendance",
+] as const satisfies readonly string[];
 
 export type TenantOwnedModel = (typeof TENANT_OWNED_MODELS)[number];
 

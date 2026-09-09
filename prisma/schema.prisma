@@ -27,13 +27,13 @@ datasource db {
 //                            Permission, and platform/system Roles (tenantId null).
 //   TENANT   (tenantId set): TenantMembership, tenant Roles, UserRole, AuditLog, Todo.
 model Tenant {
-  id        String       @id @default(cuid())
+  id     String       @id @default(cuid())
   // Human-facing organization name.
-  name      String
+  name   String
   // Stable, unique, URL-safe identifier (e.g. "acme-logistics"). Distinct from
   // any future custom domain (see MULTI-TENANT-ARCHITECTURE §133).
-  slug      String       @unique
-  status    TenantStatus @default(TRIAL)
+  slug   String       @unique
+  status TenantStatus @default(TRIAL)
 
   // ─── Organization profile (Phase 20) ──────────────────────────────────────
   // Platform-level tenant METADATA managed by Super Admin. All nullable and
@@ -41,12 +41,12 @@ model Tenant {
   // the customer ORGANIZATION (identity/contact/registered address) — they are
   // NOT tenant operational data (no logistics/warehouse/delivery locations).
   // Editing is gated by platform.tenant.update and audited.
-  legalName    String? // registered legal company name (distinct from display `name`)
-  website      String? // https URL (validated at the contract boundary)
-  industry     String? // free-text industry/sector label
-  description  String? // short organization description
-  timeZone     String? // IANA tz identifier (e.g. "Africa/Lagos")
-  locale       String? // BCP-47 locale tag (e.g. "en-US")
+  legalName   String? // registered legal company name (distinct from display `name`)
+  website     String? // https URL (validated at the contract boundary)
+  industry    String? // free-text industry/sector label
+  description String? // short organization description
+  timeZone    String? // IANA tz identifier (e.g. "Africa/Lagos")
+  locale      String? // BCP-47 locale tag (e.g. "en-US")
 
   // Registered / billing address (NOT an operational/warehouse address).
   addressLine1 String?
@@ -62,19 +62,32 @@ model Tenant {
   contactEmail String? // validated email at the contract boundary
   contactPhone String?
 
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  memberships TenantMembership[]
-  roles       Role[]
-  userRoles   UserRole[]
-  apiCredentials TenantApiCredential[]
-  tenantPlan          TenantPlan?
+  memberships          TenantMembership[]
+  roles                Role[]
+  userRoles            UserRole[]
+  apiCredentials       TenantApiCredential[]
+  tenantPlan           TenantPlan?
   entitlementOverrides TenantEntitlementOverride[]
+
+  // ─── Gym domain (Phase 6A) ────────────────────────────────────────────────
+  // Tenant-owned gym resources. Every one carries tenantId and is isolated
+  // server-side via the tenant-scoped accessor (see core/tenant/tenant-db.ts).
+  members         Member[]
+  trainers        Trainer[]
+  exercises       Exercise[]
+  workouts        Workout[]
+  workoutItems    WorkoutItem[]
+  workoutPlans    WorkoutPlan[]
+  workoutSessions WorkoutSession[]
+  attendance      Attendance[]
 
   @@index([status])
   @@map("tenants")
 }
+
 // NOTE: the Todo model (previously referenced here) was removed with the demo
 // modules in Phase 14; the Tenant no longer has a todo relation.
 
@@ -144,29 +157,33 @@ enum MembershipStatus {
 
 // User model
 model User {
-  id                  String         @id @default(cuid())
-  email               String         @unique
+  id                  String               @id @default(cuid())
+  email               String               @unique
   password            String
   name                String
-  role                String         @default("user")
+  role                String               @default("user")
   // Email verification — null until the user verifies their address via OTP.
   emailVerifiedAt     DateTime?
   // Account lockout (brute-force protection)
-  failedLoginAttempts Int            @default(0)
+  failedLoginAttempts Int                  @default(0)
   lockedUntil         DateTime?
   lastLoginAt         DateTime?
   passwordChangedAt   DateTime?
   // Authorization cache/stale-token control. Bumped whenever this user's
   // effective permissions change (role assigned/removed, role perms changed).
   // A cached permission set carrying an older version must be re-resolved.
-  permissionVersion   Int            @default(0)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  refreshTokens        RefreshToken[]
-  passwordResetTokens  PasswordResetToken[]
-  roles                UserRole[]
-  memberships          TenantMembership[]
-  platformMembership   PlatformMembership?
+  permissionVersion   Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  roles               UserRole[]
+  memberships         TenantMembership[]
+  platformMembership  PlatformMembership?
+  // Optional gym-domain identity links (Phase 6A). A User may be a gym Member
+  // and/or Trainer in one or more tenants; these are nullable back-relations.
+  memberProfiles      Member[]             @relation("MemberUser")
+  trainerProfiles     Trainer[]            @relation("TrainerUser")
 
   @@index([email])
   @@map("users")
@@ -176,7 +193,7 @@ model User {
 model RefreshToken {
   id        String    @id @default(cuid())
   token     String    @unique
-  family    String    // groups all rotations from one login session
+  family    String // groups all rotations from one login session
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
@@ -192,19 +209,19 @@ model RefreshToken {
 // OTP challenge — covers email_verification, password_reset, login_verification.
 // Stores a HMAC-SHA256 hash of the 6-digit code, never the code itself.
 model OtpChallenge {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   // userId is nullable: at forgot-password time we don't yet know if the email
   // belongs to an account (we respond generically), so we store the destination
   // email instead, then resolve the user when the OTP is verified.
   userId      String?
-  destination String    // normalised email address
+  destination String // normalised email address
   purpose     OtpPurpose
-  codeHash    String    // HMAC-SHA256(code) — never plain text
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(5)
+  codeHash    String // HMAC-SHA256(code) — never plain text
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(5)
   expiresAt   DateTime
   consumedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime   @default(now())
 
   @@index([userId, purpose])
   @@index([destination, purpose])
@@ -231,7 +248,7 @@ model PasswordResetToken {
   consumedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("password_reset_tokens")
@@ -246,7 +263,7 @@ model PasswordResetToken {
 // A named collection of permissions. System roles (isSystem=true) are seeded
 // and protected from destructive admin operations.
 model Role {
-  id          String           @id @default(cuid())
+  id          String   @id @default(cuid())
   // Stable identifier used in seeds and privilege checks (e.g. "SUPER_ADMIN").
   // Display-facing but treated as an internal key. Uniqueness is scoped to the
   // tenant: role names may repeat across tenants (MULTI-TENANT-ARCHITECTURE §54).
@@ -256,9 +273,9 @@ model Role {
   tenantId    String?
   description String?
   // System roles are created by the seed and cannot be deleted/renamed by admins.
-  isSystem    Boolean          @default(false)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   tenant      Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users       UserRole[]
@@ -275,13 +292,13 @@ model Role {
 // One specific capability, keyed by the application registry (e.g. "users.read").
 // Permissions are effectively immutable after deployment; the key is the contract.
 model Permission {
-  id          String           @id @default(cuid())
-  key         String           @unique
+  id          String   @id @default(cuid())
+  key         String   @unique
   description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  roles       RolePermission[]
+  roles RolePermission[]
 
   @@map("permissions")
 }
@@ -299,9 +316,9 @@ model UserRole {
   assignedAt DateTime @default(now())
   assignedBy String?
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
   @@index([roleId])
@@ -314,10 +331,10 @@ model UserRole {
 model RolePermission {
   roleId       String
   permissionId String
-  createdAt    DateTime   @default(now())
+  createdAt    DateTime @default(now())
 
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
   @@index([permissionId])
@@ -497,4 +514,268 @@ model TenantEntitlementOverride {
   @@id([tenantId, entitlementId])
   @@index([entitlementId])
   @@map("tenant_entitlement_overrides")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Gym domain (Phase 6A — core)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These are the first TENANT-OWNED data-plane models. Each carries a `tenantId`
+// (indexed) and is isolated per tenant server-side. Reads/writes must go through
+// the tenant-scoped accessor `getTenantDb(prisma, tenantId)` (core/tenant/
+// tenant-db.ts); the model names are enrolled in TENANT_OWNED_MODELS
+// (core/tenant/tenant-models.ts) so the dev-mode assertion catches un-scoped
+// access. Cross-tenant relations are guarded by assertSameTenant where they
+// connect two tenant-owned records (MULTI-TENANT-ARCHITECTURE §85-86).
+//
+// A gym Member/Trainer MAY be linked to a platform User (someone with a login),
+// but is not required to be — a walk-in member can exist without an account.
+// This is deliberately separate from TenantMembership, which models a staff/
+// admin user's membership in the tenant organization, not a gym customer.
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+
+  @@map("member_status")
+}
+
+enum TrainerStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("trainer_status")
+}
+
+// A gym customer (the person who trains). Tenant-owned.
+model Member {
+  id       String       @id @default(cuid())
+  tenantId String
+  // Optional link to a platform User identity (a member who can log in).
+  userId   String?
+  status   MemberStatus @default(ACTIVE)
+
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  dateOfBirth DateTime?
+  joinedAt    DateTime  @default(now())
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User?            @relation("MemberUser", fields: [userId], references: [id], onDelete: SetNull)
+  workoutPlans    WorkoutPlan[]
+  workoutSessions WorkoutSession[]
+  attendance      Attendance[]
+
+  // Email is unique WITHIN a tenant (not globally) — the same person may be a
+  // member of multiple gyms. Partial by tenant to avoid cross-tenant clashes.
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([userId])
+  @@map("members")
+}
+
+// A trainer/coach at the gym. Tenant-owned.
+model Trainer {
+  id       String        @id @default(cuid())
+  tenantId String
+  // Optional link to a platform User identity (a trainer who can log in).
+  userId   String?
+  status   TrainerStatus @default(ACTIVE)
+
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  bio         String?
+  specialties String[] // free-form tags e.g. ["strength", "mobility"]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User?            @relation("TrainerUser", fields: [userId], references: [id], onDelete: SetNull)
+  workoutPlans    WorkoutPlan[]
+  workoutSessions WorkoutSession[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([userId])
+  @@map("trainers")
+}
+
+// A reusable exercise definition (e.g. "Back Squat"). Tenant-owned so each gym
+// curates its own catalog.
+model Exercise {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name         String
+  description  String?
+  // Broad grouping e.g. "strength", "cardio", "mobility".
+  category     String?
+  // Primary muscle groups targeted, free-form tags.
+  muscleGroups String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workoutItems WorkoutItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("exercises")
+}
+
+// A named workout template (an ordered set of exercises). Tenant-owned.
+model Workout {
+  id       String @id @default(cuid())
+  tenantId String
+
+  name        String
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  WorkoutItem[]
+
+  @@index([tenantId])
+  @@map("workouts")
+}
+
+// One exercise entry within a Workout, with prescribed sets/reps. Tenant-owned
+// (carries tenantId so it can be scoped and same-tenant-guarded directly).
+model WorkoutItem {
+  id         String @id @default(cuid())
+  tenantId   String
+  workoutId  String
+  exerciseId String
+
+  // Display order within the workout.
+  position    Int     @default(0)
+  sets        Int?
+  reps        Int?
+  // Rest between sets, in seconds.
+  restSeconds Int?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([workoutId])
+  @@index([exerciseId])
+  @@map("workout_items")
+}
+
+// A workout plan assigned to a member (optionally authored by a trainer).
+// Tenant-owned.
+model WorkoutPlan {
+  id        String  @id @default(cuid())
+  tenantId  String
+  memberId  String
+  trainerId String?
+
+  name        String
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member   Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  trainer  Trainer?         @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  sessions WorkoutSession[]
+
+  @@index([tenantId])
+  @@index([memberId])
+  @@index([trainerId])
+  @@map("workout_plans")
+}
+
+enum WorkoutSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+
+  @@map("workout_session_status")
+}
+
+// A single instance of a member performing a workout (scheduled or logged).
+// Tenant-owned.
+model WorkoutSession {
+  id            String  @id @default(cuid())
+  tenantId      String
+  memberId      String
+  trainerId     String?
+  workoutPlanId String?
+
+  status      WorkoutSessionStatus @default(SCHEDULED)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member      Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  trainer     Trainer?     @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  workoutPlan WorkoutPlan? @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([memberId])
+  @@index([trainerId])
+  @@index([workoutPlanId])
+  @@map("workout_sessions")
+}
+
+enum AttendanceMethod {
+  MANUAL
+  QR_CODE
+  KIOSK
+
+  @@map("attendance_method")
+}
+
+// A member check-in / check-out record. Tenant-owned.
+model Attendance {
+  id       String @id @default(cuid())
+  tenantId String
+  memberId String
+
+  checkInAt  DateTime         @default(now())
+  checkOutAt DateTime?
+  method     AttendanceMethod @default(MANUAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, checkInAt])
+  @@index([memberId])
+  @@map("attendance")
 }

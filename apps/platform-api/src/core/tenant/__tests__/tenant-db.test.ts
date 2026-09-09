@@ -18,6 +18,30 @@ function makePrisma() {
   return { prisma: { auditLog } as unknown as PrismaClient, auditLog };
 }
 
+// Builds a mock Prisma whose gym-model delegates all record their calls.
+function makeGymPrisma() {
+  const model = () => ({
+    findMany: vi.fn().mockResolvedValue([]),
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({ id: "x" }),
+    count: vi.fn().mockResolvedValue(0),
+  });
+  const delegates = {
+    member: model(),
+    trainer: model(),
+    exercise: model(),
+    workout: model(),
+    workoutItem: model(),
+    workoutPlan: model(),
+    workoutSession: model(),
+    attendance: model(),
+  };
+  return {
+    prisma: delegates as unknown as PrismaClient,
+    delegates,
+  };
+}
+
 describe("getTenantDb (auditLog accessor)", () => {
   it("injects tenantId into findMany where", async () => {
     const { prisma, auditLog } = makePrisma();
@@ -56,5 +80,85 @@ describe("getTenantDb (auditLog accessor)", () => {
   it("exposes the bound tenantId", () => {
     const { prisma } = makePrisma();
     expect(getTenantDb(prisma, "tenant-a").tenantId).toBe("tenant-a");
+  });
+});
+
+// ─── Gym domain (Phase 6A) ────────────────────────────────────────────────────
+// Every tenant-owned gym accessor must thread tenantId into reads AND writes so
+// a caller cannot cross a tenant boundary. We assert the behaviour uniformly
+// across all eight accessors, plus the create/count paths on a representative
+// model.
+describe("getTenantDb (gym-domain accessors)", () => {
+  const accessorNames = [
+    "member",
+    "trainer",
+    "exercise",
+    "workout",
+    "workoutItem",
+    "workoutPlan",
+    "workoutSession",
+    "attendance",
+  ] as const;
+
+  for (const name of accessorNames) {
+    it(`${name}.findMany injects tenantId into where`, async () => {
+      const { prisma, delegates } = makeGymPrisma();
+      const db = getTenantDb(prisma, "tenant-a");
+      await db[name].findMany({ where: { status: "ACTIVE" } });
+
+      expect(delegates[name].findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: "ACTIVE", tenantId: "tenant-a" },
+        }),
+      );
+    });
+
+    it(`${name}.findFirst injects tenantId into where`, async () => {
+      const { prisma, delegates } = makeGymPrisma();
+      const db = getTenantDb(prisma, "tenant-a");
+      await db[name].findFirst({ where: { id: "z" } });
+
+      expect(delegates[name].findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "z", tenantId: "tenant-a" } }),
+      );
+    });
+  }
+
+  it("member.create injects tenantId into data", async () => {
+    const { prisma, delegates } = makeGymPrisma();
+    await getTenantDb(prisma, "tenant-a").member.create({
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+
+    expect(delegates.member.create).toHaveBeenCalledWith({
+      data: { firstName: "Ada", lastName: "Lovelace", tenantId: "tenant-a" },
+    });
+  });
+
+  it("attendance.count scopes by tenant", async () => {
+    const { prisma, delegates } = makeGymPrisma();
+    await getTenantDb(prisma, "tenant-a").attendance.count({
+      method: "MANUAL",
+    });
+
+    expect(delegates.attendance.count).toHaveBeenCalledWith({
+      where: { method: "MANUAL", tenantId: "tenant-a" },
+    });
+  });
+
+  it("two accessors bound to different tenants never share scope", async () => {
+    const { prisma, delegates } = makeGymPrisma();
+    await getTenantDb(prisma, "tenant-a").member.findMany();
+    await getTenantDb(prisma, "tenant-b").member.findMany();
+
+    expect(delegates.member.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: { tenantId: "tenant-a" } }),
+    );
+    expect(delegates.member.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: { tenantId: "tenant-b" } }),
+    );
   });
 });

@@ -22,6 +22,33 @@ describe("assertTenantScoped (allow-list gating)", () => {
   it("ignores undefined model (raw queries)", () => {
     expect(() => assertTenantScoped(undefined, "queryRaw", {})).not.toThrow();
   });
+
+  // Phase 6A — the core gym-domain models are enrolled in TENANT_OWNED_MODELS,
+  // so the guard must ENFORCE scope on them (throw when tenantId is missing,
+  // pass when present).
+  const gymModels = [
+    "Member",
+    "Trainer",
+    "Exercise",
+    "Workout",
+    "WorkoutItem",
+    "WorkoutPlan",
+    "WorkoutSession",
+    "Attendance",
+  ];
+
+  for (const model of gymModels) {
+    it(`enforces tenant scope on ${model} (tenant-owned)`, () => {
+      // Missing tenantId → must throw.
+      expect(() =>
+        assertTenantScoped(model, "findMany", { where: {} }),
+      ).toThrow(/tenant-scope/i);
+      // Present tenantId → must pass.
+      expect(() =>
+        assertTenantScoped(model, "findMany", { where: { tenantId: "t1" } }),
+      ).not.toThrow();
+    });
+  }
 });
 
 describe("assertTenantScopedFor (operation-shape logic)", () => {
