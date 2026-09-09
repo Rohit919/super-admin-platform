@@ -1,20 +1,12 @@
 // Flat ESLint config for the monorepo (ESLint 9).
 // - TS linting via typescript-eslint (recommended, non-type-checked for speed).
-// - React hooks + fast-refresh rules for the super-admin app.
-// - Node globals for the API, browser globals for the super-admin frontend.
+// - Node globals for the API and shared packages.
 //
-// NOTE: we export a plain flat-config array (not tseslint.config()) because the
-// helper mangled the `plugins` map keys into array indices when combined with
-// this version of eslint-plugin-react-hooks. A plain array is unambiguous.
+// NOTE: we export a plain flat-config array (not tseslint.config()) for
+// unambiguous plugin/rule ordering.
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import globals from "globals";
-import reactHooksPlugin from "eslint-plugin-react-hooks";
-import reactRefreshPlugin from "eslint-plugin-react-refresh";
-
-// Normalize ESM interop: some plugins ship the plugin under `.default`.
-const reactHooks = reactHooksPlugin.default ?? reactHooksPlugin;
-const reactRefresh = reactRefreshPlugin.default ?? reactRefreshPlugin;
 
 export default [
   // ── Ignore build output, deps, reference project, generated code ───────────
@@ -67,38 +59,5 @@ export default [
       "*.mjs",
     ],
     languageOptions: { globals: { ...globals.node } },
-  },
-
-  // ── Super Admin (platform control-plane frontend — browser + React) ─────────
-  {
-    files: ["apps/super-admin/**/*.{ts,tsx}"],
-    languageOptions: {
-      globals: { ...globals.browser },
-      parserOptions: { ecmaFeatures: { jsx: true } },
-    },
-    plugins: {
-      "react-hooks": reactHooks,
-      "react-refresh": reactRefresh,
-    },
-    rules: {
-      "react-hooks/rules-of-hooks": "error",
-      "react-hooks/exhaustive-deps": "warn",
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
-    },
-  },
-
-  // ── Tests (Vitest globals) ──────────────────────────────────────────────────
-  {
-    files: [
-      "apps/super-admin/**/*.{test,spec}.{ts,tsx}",
-      "apps/super-admin/src/test/**/*.{ts,tsx}",
-    ],
-    languageOptions: { globals: { ...globals.node } },
-    rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-    },
   },
 ];

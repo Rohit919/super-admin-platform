@@ -33,9 +33,5 @@ logs/
 # TypeScript build info
 *.tsbuildinfo
 
-# Vite
-apps/super-admin/dist/
-apps/super-admin/.vite/
-
 # Local reference material (not part of the project)
 /_Reference/
