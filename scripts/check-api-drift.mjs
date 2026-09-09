@@ -22,7 +22,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
-const SCAN_DIRS = ["apps/platform-api/src", "apps/super-admin/src"];
+const SCAN_DIRS = ["apps/platform-api/src"];
 
 // Files/paths where an `/api/v1` literal is legitimate.
 const ALLOWED_FILES = new Set(

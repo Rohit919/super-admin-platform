@@ -104,8 +104,6 @@ jobs:
         run: npx prisma migrate deploy
       - name: Run API tests with coverage
         run: npm run test:coverage --workspace @app/api
-      - name: Run Super Admin frontend tests
-        run: npm run test:super-admin
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
@@ -126,7 +124,7 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npx prisma generate
-      - name: Build contracts, API, and super-admin
+      - name: Build contracts and API
         run: npm run build
       - name: Verify API build output
         run: test -f apps/platform-api/dist/server.js

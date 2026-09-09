@@ -1,7 +1,7 @@
 {
-  "name": "super-admin-platform",
+  "name": "gym-platform-api",
   "version": "1.0.0",
-  "description": "Super Admin Platform — platform control plane (platform-api + super-admin frontend) sharing TypeBox API contracts",
+  "description": "Gym Platform API — centralized backend API for the Gym SaaS Platform (Fastify + Prisma + PostgreSQL + Redis), sharing TypeBox API contracts with its client applications",
   "author": "DriftOS",
   "license": "MIT",
   "private": true,
@@ -15,13 +15,10 @@
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace @app/api",
-    "dev:super-admin": "npm run dev --workspace @app/super-admin",
     "build:contracts": "npm run build --workspace @app/api-contracts",
     "build:api": "npm run build --workspace @app/api",
-    "build:super-admin": "npm run build --workspace @app/super-admin",
-    "build": "npm run build:contracts && npm run build:api && npm run build:super-admin",
+    "build": "npm run build:contracts && npm run build:api",
     "test": "npm run test --workspace @app/api",
-    "test:super-admin": "npm run test --workspace @app/super-admin",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -40,8 +37,6 @@
   "devDependencies": {
     "@eslint/js": "^9.12.0",
     "eslint": "^9.12.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-react-refresh": "^0.4.12",
     "globals": "^15.11.0",
     "husky": "^8.0.3",
     "lint-staged": "^15.2.0",

@@ -41,9 +41,6 @@ plopfile.js
 .idea
 *.swp
 
-# The super-admin frontend is built/deployed separately from the API image
-apps/super-admin
-
 # Docker / k8s config (not needed inside image)
 docker
 k8s
